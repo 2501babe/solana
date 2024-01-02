@@ -10,6 +10,9 @@
 //!    `Feature::default()`
 //! 2. When the next epoch is entered the runtime will check for new activation requests and
 //!    active them.  When this occurs, the activation slot is recorded in the feature account
+//!
+//! Feature status can be checked by programs at runtime by passing the feature id to
+//! `is_feature_active()`
 
 use crate::{
     account_info::AccountInfo, clock::Slot, instruction::Instruction, program_error::ProgramError,
