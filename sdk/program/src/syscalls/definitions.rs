@@ -73,6 +73,9 @@ define_syscall!(fn sol_poseidon(parameters: u64, endianness: u64, vals: *const u
 define_syscall!(fn sol_remaining_compute_units() -> u64);
 define_syscall!(fn sol_alt_bn128_compression(op: u64, input: *const u8, input_size: u64, result: *mut u8) -> u64);
 
+// XXX check if i can return the bool, also why are the programid pointers mut?
+define_syscall!(fn sol_hana_test(addr: *mut u8, feature: *mut Pubkey) -> u64);
+
 #[cfg(target_feature = "static-syscalls")]
 pub const fn sys_hash(name: &str) -> usize {
     murmur3_32(name.as_bytes(), 0) as usize
