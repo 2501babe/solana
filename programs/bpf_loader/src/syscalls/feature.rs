@@ -11,7 +11,13 @@ declare_builtin_function!(
         _arg5: u64,
         memory_mapping: &mut MemoryMapping,
     ) -> Result<u64, Error> {
-        // XXX consume compute here
+        consume_compute_meter(
+            invoke_context,
+            invoke_context
+                .get_compute_budget()
+                .sysvar_base_cost // XXX something else?
+                .saturating_add(size_of::<bool>() as u64),
+        )?;
 
         let feature_pubkey = translate_type_mut::<Pubkey>(
             memory_mapping,
@@ -19,10 +25,13 @@ declare_builtin_function!(
             invoke_context.get_check_aligned(),
         )?;
 
-        let var = translate_type_mut::<bool>(memory_mapping, var_addr, invoke_context.get_check_aligned())?;
+        let var = translate_type_mut::<bool>(
+            memory_mapping,
+            var_addr,
+            invoke_context.get_check_aligned(),
+        )?;
         *var = invoke_context.feature_set.is_active(&feature_pubkey);
 
         Ok(SUCCESS)
     }
 );
-

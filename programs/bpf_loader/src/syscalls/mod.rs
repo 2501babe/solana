@@ -1,5 +1,6 @@
 pub use self::{
     cpi::{SyscallInvokeSignedC, SyscallInvokeSignedRust},
+    feature::SyscallIsFeatureActive,
     logging::{
         SyscallLog, SyscallLogBpfComputeUnits, SyscallLogData, SyscallLogPubkey, SyscallLogU64,
     },
@@ -8,7 +9,6 @@ pub use self::{
         SyscallGetClockSysvar, SyscallGetEpochRewardsSysvar, SyscallGetEpochScheduleSysvar,
         SyscallGetFeesSysvar, SyscallGetLastRestartSlotSysvar, SyscallGetRentSysvar,
     },
-    feature::SyscallIsFeatureActive,
 };
 #[allow(deprecated)]
 use {
@@ -370,10 +370,6 @@ pub fn create_program_runtime_environment_v1<'a>(
     )?;
     result.register_function_hashed(*b"sol_get_rent_sysvar", SyscallGetRentSysvar::vm)?;
 
-    // Feature Set
-    // XXX needs to be feature-gated
-    result.register_function_hashed(*b"sol_is_feature_active", SyscallIsFeatureActive::vm)?;
-
     register_feature_gated_function!(
         result,
         last_restart_slot_syscall_enabled,
@@ -387,6 +383,10 @@ pub fn create_program_runtime_environment_v1<'a>(
         *b"sol_get_epoch_rewards_sysvar",
         SyscallGetEpochRewardsSysvar::vm,
     )?;
+
+    // Feature Set
+    // XXX needs to be feature-gated
+    result.register_function_hashed(*b"sol_is_feature_active", SyscallIsFeatureActive::vm)?;
 
     // Memory ops
     result.register_function_hashed(*b"sol_memcpy_", SyscallMemcpy::vm)?;

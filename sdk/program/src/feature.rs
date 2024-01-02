@@ -66,16 +66,14 @@ pub fn is_feature_active(feature_addr: &Pubkey) -> Result<bool, ProgramError> {
     #[cfg(target_os = "solana")]
     let result = unsafe { crate::syscalls::sol_is_feature_active(var_addr, feature_addr) };
 
-    // TODO
     #[cfg(not(target_os = "solana"))]
-    let result = unimplemented!();
+    let result = crate::program_stubs::sol_is_feature_active(var_addr, feature_addr);
 
     match result {
         crate::entrypoint::SUCCESS => Ok(var),
         e => Err(e.into()),
     }
 }
-
 
 #[cfg(test)]
 mod test {
