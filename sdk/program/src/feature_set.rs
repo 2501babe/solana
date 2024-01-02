@@ -1,5 +1,8 @@
 // TODO docs
 
+// XXX found a note that "new rbpf features" must be added to "Bank::apply_builtin_program_feature_transitions()"
+// i dont think this applies to me because i didnt see any other syscall feature flags there
+
 pub mod deprecate_rewards_sysvar {
     crate::declare_id!("GaBtBJvmS4Arjj5W1NmFcyvPjsHN38UGYDq2MDwbs9Qu");
 }
@@ -697,4 +700,8 @@ pub mod validate_fee_collector_account {
 
 pub mod enable_zk_transfer_with_fee {
     crate::declare_id!("zkNLP7EQALfC1TYeB3biDU7akDckj8iPkvh9y2Mt2K3");
+}
+
+pub mod is_feature_active_syscall_enabled {
+    crate::declare_id!("DdJ7zTYxodTonmHJkQiTDbbETdzNceKyjEbLN36HDfUm");
 }

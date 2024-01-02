@@ -211,6 +211,7 @@ lazy_static! {
         (update_hashes_per_tick6::id(), "Update desired hashes per tick to 10M"),
         (validate_fee_collector_account::id(), "validate fee collector account #33888"),
         (enable_zk_transfer_with_fee::id(), "enable Zk Token proof program transfer with fee"),
+        (is_feature_active_syscall_enabled::id(), "is_feature_active syscall"),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()

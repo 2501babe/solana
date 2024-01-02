@@ -41,8 +41,8 @@ use {
             disable_fees_sysvar, enable_alt_bn128_compression_syscall, enable_alt_bn128_syscall,
             enable_big_mod_exp_syscall, enable_early_verification_of_account_modifications,
             enable_partitioned_epoch_reward, enable_poseidon_syscall,
-            error_on_syscall_bpf_function_hash_collisions, last_restart_slot_sysvar,
-            libsecp256k1_0_5_upgrade_enabled, reject_callx_r10,
+            error_on_syscall_bpf_function_hash_collisions, is_feature_active_syscall_enabled,
+            last_restart_slot_sysvar, libsecp256k1_0_5_upgrade_enabled, reject_callx_r10,
             remaining_compute_units_syscall_enabled, stop_sibling_instruction_search_at_parent,
             stop_truncating_strings_in_syscalls, switch_to_new_elf_parser,
         },
@@ -269,6 +269,8 @@ pub fn create_program_runtime_environment_v1<'a>(
     let enable_poseidon_syscall = feature_set.is_active(&enable_poseidon_syscall::id());
     let remaining_compute_units_syscall_enabled =
         feature_set.is_active(&remaining_compute_units_syscall_enabled::id());
+    let is_feature_active_syscall_enabled =
+        feature_set.is_active(&is_feature_active_syscall_enabled::id());
     // !!! ATTENTION !!!
     // When adding new features for RBPF here,
     // also add them to `Bank::apply_builtin_program_feature_transitions()`.
@@ -385,8 +387,12 @@ pub fn create_program_runtime_environment_v1<'a>(
     )?;
 
     // Feature Set
-    // XXX needs to be feature-gated
-    result.register_function_hashed(*b"sol_is_feature_active", SyscallIsFeatureActive::vm)?;
+    register_feature_gated_function!(
+        result,
+        is_feature_active_syscall_enabled,
+        *b"sol_is_feature_active",
+        SyscallIsFeatureActive::vm
+    )?;
 
     // Memory ops
     result.register_function_hashed(*b"sol_memcpy_", SyscallMemcpy::vm)?;
