@@ -5,10 +5,10 @@ pub use self::{
     },
     mem_ops::{SyscallMemcmp, SyscallMemcpy, SyscallMemmove, SyscallMemset},
     sysvar::{
-        SyscallHanaTest,
         SyscallGetClockSysvar, SyscallGetEpochRewardsSysvar, SyscallGetEpochScheduleSysvar,
         SyscallGetFeesSysvar, SyscallGetLastRestartSlotSysvar, SyscallGetRentSysvar,
     },
+    feature::SyscallIsFeatureActive,
 };
 #[allow(deprecated)]
 use {
@@ -73,6 +73,7 @@ use {
 };
 
 mod cpi;
+mod feature;
 mod logging;
 mod mem_ops;
 mod sysvar;
@@ -369,7 +370,7 @@ pub fn create_program_runtime_environment_v1<'a>(
     )?;
     result.register_function_hashed(*b"sol_get_rent_sysvar", SyscallGetRentSysvar::vm)?;
 
-    result.register_function_hashed(*b"sol_hana_test", SyscallHanaTest::vm)?;
+    result.register_function_hashed(*b"sol_is_feature_active", SyscallIsFeatureActive::vm)?;
 
     register_feature_gated_function!(
         result,

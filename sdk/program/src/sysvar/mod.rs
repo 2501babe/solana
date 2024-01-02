@@ -229,27 +229,6 @@ pub trait Sysvar:
     }
 }
 
-// XXX move this
-pub fn hana_test(feature: &Pubkey) -> Result<bool, ProgramError> {
-    let mut var = false;
-    let var_addr = &mut var as *mut _ as *mut u8;
-
-    let mut key = feature.clone();
-    let key_addr = &mut key ;//as *mut _ as *mut u8; // XXX wtf is this u8?
-
-    // XXX check other syscalls to see if i need to write to memory or if i can just return the bool
-    #[cfg(target_os = "solana")]
-    let result = unsafe { crate::syscalls::sol_hana_test(var_addr, key_addr) };
-
-    #[cfg(not(target_os = "solana"))]
-    let result = unimplemented!();
-
-    match result {
-        crate::entrypoint::SUCCESS => Ok(var),
-        e => Err(e.into()),
-    }
-}
-
 /// Implements the [`Sysvar::get`] method for both SBF and host targets.
 #[macro_export]
 macro_rules! impl_sysvar_get {

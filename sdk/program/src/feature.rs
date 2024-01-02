@@ -58,6 +58,28 @@ pub fn activate_with_lamports(
     ]
 }
 
+// TODO tests
+pub fn is_feature_active(feature: &Pubkey) -> Result<bool, ProgramError> {
+    let mut var = false;
+    let var_addr = &mut var as *mut _ as *mut u8;
+
+    let mut key = feature.clone();
+    let key_addr = &mut key ;//as *mut _ as *mut u8; // XXX wtf is this u8?
+
+    // XXX check other syscalls to see if i need to write to memory or if i can just return the bool
+    #[cfg(target_os = "solana")]
+    let result = unsafe { crate::syscalls::sol_is_feature_active(var_addr, key_addr) };
+
+    #[cfg(not(target_os = "solana"))]
+    let result = unimplemented!();
+
+    match result {
+        crate::entrypoint::SUCCESS => Ok(var),
+        e => Err(e.into()),
+    }
+}
+
+
 #[cfg(test)]
 mod test {
     use {super::*, solana_program::clock::Slot};
