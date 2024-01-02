@@ -59,17 +59,14 @@ pub fn activate_with_lamports(
 }
 
 // TODO tests
-pub fn is_feature_active(feature: &Pubkey) -> Result<bool, ProgramError> {
+pub fn is_feature_active(feature_addr: &Pubkey) -> Result<bool, ProgramError> {
     let mut var = false;
-    let var_addr = &mut var as *mut _ as *mut u8;
+    let var_addr = &mut var as *mut _ as *mut u8; // XXX i dont understand what this does
 
-    let mut key = feature.clone();
-    let key_addr = &mut key ;//as *mut _ as *mut u8; // XXX wtf is this u8?
-
-    // XXX check other syscalls to see if i need to write to memory or if i can just return the bool
     #[cfg(target_os = "solana")]
-    let result = unsafe { crate::syscalls::sol_is_feature_active(var_addr, key_addr) };
+    let result = unsafe { crate::syscalls::sol_is_feature_active(var_addr, feature_addr) };
 
+    // TODO
     #[cfg(not(target_os = "solana"))]
     let result = unimplemented!();
 
