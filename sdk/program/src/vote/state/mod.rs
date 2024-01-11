@@ -347,16 +347,129 @@ impl VoteState {
         3762 // see test_vote_state_size_of.
     }
 
-    #[allow(clippy::used_underscore_binding)]
-    pub fn deserialize(_input: &[u8]) -> Result<Self, InstructionError> {
+    pub fn deserialize(input: &[u8]) -> Result<Self, InstructionError> {
         #[cfg(not(target_os = "solana"))]
         {
-            deserialize::<VoteStateVersions>(_input)
+            deserialize::<VoteStateVersions>(input)
                 .map(|versioned| versioned.convert_to_current())
                 .map_err(|_| InstructionError::InvalidAccountData)
         }
         #[cfg(target_os = "solana")]
-        unimplemented!();
+        {
+            let mut vote_state = Self::default();
+            let mut i = 0;
+
+            let variant = u32::from_le_bytes(input[i..i + 4].try_into().unwrap());
+            if variant != 2 {
+                // not supported
+                return Err(InstructionError::InvalidAccountData);
+            }
+            i += 4;
+
+            // pubkey
+            vote_state.node_pubkey = Pubkey::try_from(&input[i..i + 32]).unwrap();
+            i += 32;
+
+            // pubkey
+            vote_state.authorized_withdrawer = Pubkey::try_from(&input[i..i + 32]).unwrap();
+            i += 32;
+
+            // u8
+            vote_state.commission = input[i];
+            i += 1;
+
+            // vec len
+            let vote_count = u64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+            i += 8;
+
+            // (u8, u64, u32)
+            for _ in 0..vote_count {
+                let latency = input[i];
+                i += 1;
+
+                let slot = u64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+                i += 8;
+
+                let confirmation_count = u32::from_le_bytes(input[i..i + 4].try_into().unwrap());
+                i += 4;
+
+                let lockout = Lockout::new_with_confirmation_count(slot, confirmation_count);
+
+                vote_state.votes.push_back(LandedVote { latency, lockout });
+            }
+
+            // option u64
+            if input[i] == 0 {
+                i += 1;
+            } else if input[i] == 1 {
+                i += 1;
+
+                vote_state.root_slot =
+                    Some(u64::from_le_bytes(input[i..i + 8].try_into().unwrap()));
+                i += 8;
+            } else {
+                return Err(InstructionError::InvalidAccountData);
+            }
+
+            // btreemap len
+            let authorized_voter_count = u64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+            i += 8;
+
+            // (u64, pubkey)
+            for _ in 0..authorized_voter_count {
+                let epoch = u64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+                i += 8;
+
+                let authorized_voter = Pubkey::try_from(&input[i..i + 32]).unwrap();
+                i += 32;
+
+                vote_state.authorized_voters.insert(epoch, authorized_voter);
+            }
+
+            // cirbuf is a 32-item (pubkey, u64, u64) ringbuffer followed by usize and bool
+            let is_empty_offset = (32 + 8 + 8) * 32 + 8;
+            if input[i + is_empty_offset] == 0 {
+                unimplemented!();
+            } else if input[i + is_empty_offset] == 1 {
+                i += is_empty_offset;
+                i += 1;
+            } else {
+                return Err(InstructionError::InvalidAccountData);
+            }
+
+            // vec len
+            let epoch_credit_count = u64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+            i += 8;
+
+            // (u64, u64, u64)
+            for _ in 0..epoch_credit_count {
+                let epoch = u64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+                i += 8;
+
+                let credits = u64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+                i += 8;
+
+                let prev_credits = u64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+                i += 8;
+
+                vote_state
+                    .epoch_credits
+                    .push((epoch, credits, prev_credits));
+            }
+
+            // (u64, i64)
+            {
+                let slot = u64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+                i += 8;
+
+                let timestamp = i64::from_le_bytes(input[i..i + 8].try_into().unwrap());
+                i += 8;
+
+                vote_state.last_timestamp = BlockTimestamp { slot, timestamp };
+            }
+
+            Ok(vote_state)
+        }
     }
 
     pub fn serialize(
