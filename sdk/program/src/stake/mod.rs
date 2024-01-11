@@ -12,8 +12,9 @@ pub mod tools;
 mod deprecated;
 pub use deprecated::*;
 
+// XXX HANA temp for testing
 pub mod program {
-    crate::declare_id!("Stake11111111111111111111111111111111111111");
+    crate::declare_id!("7837mbBVYX9n2m8iy2Lf2QfooTutj3WprowcsFkvLrZA");
 }
 
 /// The minimum number of epochs before stake account that is delegated to a delinquent vote

@@ -225,7 +225,8 @@ pub fn parse_args<'a>(
             output_format,
             commitment,
             send_transaction_config: RpcSendTransactionConfig {
-                preflight_commitment: Some(commitment.commitment),
+                skip_preflight: true,
+                preflight_commitment: None,
                 ..RpcSendTransactionConfig::default()
             },
             confirm_transaction_initial_timeout,

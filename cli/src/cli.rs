@@ -537,7 +537,7 @@ impl CliConfig<'_> {
             commitment: CommitmentConfig::processed(),
             send_transaction_config: RpcSendTransactionConfig {
                 skip_preflight: true,
-                preflight_commitment: Some(CommitmentConfig::processed().commitment),
+                preflight_commitment: None,
                 ..RpcSendTransactionConfig::default()
             },
             ..Self::default()
@@ -561,7 +561,11 @@ impl Default for CliConfig<'_> {
             rpc_timeout: Duration::from_secs(u64::from_str(DEFAULT_RPC_TIMEOUT_SECONDS).unwrap()),
             verbose: false,
             output_format: OutputFormat::Display,
-            send_transaction_config: RpcSendTransactionConfig::default(),
+            send_transaction_config: RpcSendTransactionConfig {
+                skip_preflight: true,
+                preflight_commitment: None,
+                ..RpcSendTransactionConfig::default()
+            },
             confirm_transaction_initial_timeout: Duration::from_secs(
                 u64::from_str(DEFAULT_CONFIRM_TX_TIMEOUT_SECONDS).unwrap(),
             ),
