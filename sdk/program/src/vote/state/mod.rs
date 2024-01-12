@@ -14,9 +14,13 @@ use {
         sysvar::clock::Clock,
         vote::{authorized_voters::AuthorizedVoters, error::VoteError},
     },
-    bincode::{serialize_into, ErrorKind},
+    bincode::{serialize_into, serialized_size, ErrorKind},
     serde_derive::{Deserialize, Serialize},
-    std::{collections::VecDeque, fmt::Debug},
+    std::{
+        collections::VecDeque,
+        fmt::Debug,
+        io::{Cursor, Read},
+    },
 };
 
 mod vote_state_0_23_5;
@@ -350,7 +354,7 @@ impl VoteState {
     pub fn deserialize(input: &[u8]) -> Result<Self, InstructionError> {
         #[cfg(not(target_os = "solana"))]
         {
-            deserialize::<VoteStateVersions>(_input)
+            deserialize::<VoteStateVersions>(input)
                 .map(|versioned| versioned.convert_to_current())
                 .map_err(|_| InstructionError::InvalidAccountData)
         }
@@ -468,12 +472,73 @@ impl VoteState {
                 vote_state.last_timestamp = BlockTimestamp { slot, timestamp };
             }
 
-            if i != input.len() {
-                return Err(InstructionError::InvalidAccountData);
-            }
-
             Ok(vote_state)
         }
+    }
+
+    pub fn deserialize2(input: &[u8]) -> Result<Self, InstructionError> {
+        let mut vote_state = Self::default();
+        let mut cursor = Cursor::new(input);
+
+        let variant = deser_u32(&mut cursor)?;
+        if variant != 2 {
+            // not supported
+            return Err(InstructionError::InvalidAccountData);
+        }
+
+        vote_state.node_pubkey = deser_pubkey(&mut cursor)?;
+        vote_state.authorized_withdrawer = deser_pubkey(&mut cursor)?;
+        vote_state.commission = deser_u8(&mut cursor)?;
+
+        let vote_count = deser_u64(&mut cursor)?;
+        for _ in 0..vote_count {
+            let latency = deser_u8(&mut cursor)?;
+            let slot = deser_u64(&mut cursor)?;
+            let confirmation_count = deser_u32(&mut cursor)?;
+            let lockout = Lockout::new_with_confirmation_count(slot, confirmation_count);
+
+            vote_state.votes.push_back(LandedVote { latency, lockout });
+        }
+
+        vote_state.root_slot = deser_maybe_u64(&mut cursor)?;
+
+        let authorized_voter_count = deser_u64(&mut cursor)?;
+        for _ in 0..authorized_voter_count {
+            let epoch = deser_u64(&mut cursor)?;
+            let authorized_voter = deser_pubkey(&mut cursor)?;
+
+            vote_state.authorized_voters.insert(epoch, authorized_voter);
+        }
+
+        let position_after_circbuf = cursor.position()
+            + serialized_size(&vote_state.prior_voters)
+                .map_err(|_| InstructionError::InvalidAccountData)?;
+
+        match input[position_after_circbuf as usize - 1] {
+            0 => unimplemented!(),
+            1 => cursor.set_position(position_after_circbuf),
+            _ => return Err(InstructionError::InvalidAccountData),
+        }
+
+        let epoch_credit_count = deser_u64(&mut cursor)?;
+        for _ in 0..epoch_credit_count {
+            let epoch = deser_u64(&mut cursor)?;
+            let credits = deser_u64(&mut cursor)?;
+            let prev_credits = deser_u64(&mut cursor)?;
+
+            vote_state
+                .epoch_credits
+                .push((epoch, credits, prev_credits));
+        }
+
+        {
+            let slot = deser_u64(&mut cursor)?;
+            let timestamp = deser_i64(&mut cursor)?;
+
+            vote_state.last_timestamp = BlockTimestamp { slot, timestamp };
+        }
+
+        Ok(vote_state)
     }
 
     pub fn serialize(
@@ -816,6 +881,60 @@ impl VoteState {
         data.len() == VoteState::size_of()
             && data[VERSION_OFFSET..DEFAULT_PRIOR_VOTERS_END] != [0; DEFAULT_PRIOR_VOTERS_OFFSET]
     }
+}
+
+fn deser_u8(input: &mut Cursor<&[u8]>) -> Result<u8, InstructionError> {
+    let mut buf = [0; 1];
+    input
+        .read_exact(&mut buf)
+        .map_err(|_| InstructionError::InvalidAccountData)?;
+
+    Ok(buf[0])
+}
+
+fn deser_u32(input: &mut Cursor<&[u8]>) -> Result<u32, InstructionError> {
+    let mut buf = [0; 4];
+    input
+        .read_exact(&mut buf)
+        .map_err(|_| InstructionError::InvalidAccountData)?;
+
+    Ok(u32::from_le_bytes(buf))
+}
+
+fn deser_u64(input: &mut Cursor<&[u8]>) -> Result<u64, InstructionError> {
+    let mut buf = [0; 8];
+    input
+        .read_exact(&mut buf)
+        .map_err(|_| InstructionError::InvalidAccountData)?;
+
+    Ok(u64::from_le_bytes(buf))
+}
+
+fn deser_maybe_u64(input: &mut Cursor<&[u8]>) -> Result<Option<u64>, InstructionError> {
+    let variant = deser_u8(input)?;
+    match variant {
+        0 => Ok(None),
+        1 => deser_u64(input).map(|u| Some(u)),
+        _ => Err(InstructionError::InvalidAccountData),
+    }
+}
+
+fn deser_i64(input: &mut Cursor<&[u8]>) -> Result<i64, InstructionError> {
+    let mut buf = [0; 8];
+    input
+        .read_exact(&mut buf)
+        .map_err(|_| InstructionError::InvalidAccountData)?;
+
+    Ok(i64::from_le_bytes(buf))
+}
+
+fn deser_pubkey(input: &mut Cursor<&[u8]>) -> Result<Pubkey, InstructionError> {
+    let mut buf = [0; 32];
+    input
+        .read_exact(&mut buf)
+        .map_err(|_| InstructionError::InvalidAccountData)?;
+
+    Ok(Pubkey::from(buf))
 }
 
 pub mod serde_compact_vote_state_update {
