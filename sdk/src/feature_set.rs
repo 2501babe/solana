@@ -789,6 +789,10 @@ pub mod deprecate_unused_legacy_vote_plumbing {
     solana_sdk::declare_id!("6Uf8S75PVh91MYgPQSHnjRAPQq6an5BDv9vomrCwDqLe");
 }
 
+pub mod get_sysvar_syscall_enabled {
+    solana_sdk::declare_id!("CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq");
+}
+
 lazy_static! {
     /// Map of feature identifiers to user-visible description
     pub static ref FEATURE_NAMES: HashMap<Pubkey, &'static str> = [
@@ -981,6 +985,7 @@ lazy_static! {
         (remove_rounding_in_fee_calculation::id(), "Removing unwanted rounding in fee calculation #34982"),
         (deprecate_unused_legacy_vote_plumbing::id(), "Deprecate unused legacy vote tx plumbing"),
         (enable_tower_sync_ix::id(), "Enable tower sync vote instruction"),
+        (get_sysvar_syscall_enabled::id(), "Enable syscall for fetching Sysvar bytes #615"),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()
