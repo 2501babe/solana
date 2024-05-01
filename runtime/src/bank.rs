@@ -109,6 +109,8 @@ use {
             create_account_shared_data_with_fields as create_account, from_account, Account,
             AccountSharedData, InheritableAccountFields, ReadableAccount, WritableAccount,
         },
+        account_utils::StateMut,
+        bpf_loader_upgradeable::{self, UpgradeableLoaderState},
         clock::{
             BankId, Epoch, Slot, SlotCount, SlotIndex, UnixTimestamp, DEFAULT_HASHES_PER_TICK,
             DEFAULT_TICKS_PER_SECOND, INITIAL_RENT_EPOCH, MAX_PROCESSING_AGE,
@@ -131,6 +133,7 @@ use {
         incinerator,
         inflation::Inflation,
         inner_instruction::InnerInstructions,
+        loader_v4,
         message::{AccountKeys, SanitizedMessage},
         native_loader,
         native_token::LAMPORTS_PER_SOL,
@@ -166,10 +169,11 @@ use {
     solana_svm::{
         account_loader::{TransactionCheckResult, TransactionLoadResult},
         account_overrides::AccountOverrides,
+        program_loader::load_program_with_pubkey,
         transaction_error_metrics::TransactionErrorMetrics,
+        transaction_processing_callback::TransactionProcessingCallback,
         transaction_processor::{
             ExecutionRecordingConfig, TransactionBatchProcessor, TransactionLogMessages,
-            TransactionProcessingCallback,
         },
         transaction_results::{
             TransactionExecutionDetails, TransactionExecutionResult, TransactionResults,
@@ -2985,6 +2989,7 @@ impl Bank {
         self.slots_per_year = genesis_config.slots_per_year();
 
         self.epoch_schedule = genesis_config.epoch_schedule.clone();
+        self.transaction_processor.epoch_schedule = genesis_config.epoch_schedule.clone();
 
         self.inflation = Arc::new(RwLock::new(genesis_config.inflation));
 
@@ -3071,7 +3076,7 @@ impl Bank {
 
     pub fn is_blockhash_valid(&self, hash: &Hash) -> bool {
         let blockhash_queue = self.blockhash_queue.read().unwrap();
-        blockhash_queue.is_hash_valid(hash)
+        blockhash_queue.is_hash_valid_for_age(hash, MAX_PROCESSING_AGE)
     }
 
     pub fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> u64 {
@@ -3157,7 +3162,7 @@ impl Bank {
         // length is made variable by epoch
         blockhash_queue
             .get_hash_age(blockhash)
-            .map(|age| self.slot + blockhash_queue.get_max_age() as u64 - age)
+            .map(|age| self.slot + MAX_PROCESSING_AGE as u64 - age)
     }
 
     pub fn get_blockhash_last_valid_block_height(&self, blockhash: &Hash) -> Option<Slot> {
@@ -3166,7 +3171,7 @@ impl Bank {
         // length is made variable by epoch
         blockhash_queue
             .get_hash_age(blockhash)
-            .map(|age| self.block_height + blockhash_queue.get_max_age() as u64 - age)
+            .map(|age| self.block_height + MAX_PROCESSING_AGE as u64 - age)
     }
 
     pub fn confirmed_last_blockhash(&self) -> Hash {
@@ -4151,18 +4156,23 @@ impl Bank {
 
         let mut store_executors_which_were_deployed_time =
             Measure::start("store_executors_which_were_deployed_time");
+        let mut cache = None;
         for execution_result in &execution_results {
             if let TransactionExecutionResult::Executed {
                 details,
                 programs_modified_by_tx,
             } = execution_result
             {
-                if details.status.is_ok() {
-                    let mut cache = self.transaction_processor.program_cache.write().unwrap();
-                    cache.merge(programs_modified_by_tx);
+                if details.status.is_ok() && !programs_modified_by_tx.is_empty() {
+                    cache
+                        .get_or_insert_with(|| {
+                            self.transaction_processor.program_cache.write().unwrap()
+                        })
+                        .merge(programs_modified_by_tx);
                 }
             }
         }
+        drop(cache);
         store_executors_which_were_deployed_time.stop();
         saturating_add_assign!(
             timings.execute_accessories.update_executors_us,
@@ -5599,8 +5609,7 @@ impl Bank {
         );
     }
 
-    /// Recalculate the hash_internal_state from the account stores. Would be used to verify a
-    /// snapshot.
+    /// Recalculate the accounts hash from the account stores. Used to verify a snapshot.
     /// return true if all is good
     /// Only called from startup or test code.
     #[must_use]
@@ -5617,32 +5626,36 @@ impl Bank {
             .verify_accounts_hash_in_bg
             .wait_for_complete();
 
-        if config.require_rooted_bank
-            && !accounts
-                .accounts_db
-                .accounts_index
-                .is_alive_root(self.slot())
-        {
+        let slot = self.slot();
+        if config.require_rooted_bank && !accounts.accounts_db.accounts_index.is_alive_root(slot) {
             if let Some(parent) = self.parent() {
-                info!("{} is not a root, so attempting to verify bank hash on parent bank at slot: {}", self.slot(), parent.slot());
+                info!(
+                    "slot {slot} is not a root, so verify accounts hash on parent bank at slot {}",
+                    parent.slot(),
+                );
                 return parent.verify_accounts_hash(base, config);
             } else {
                 // this will result in mismatch errors
                 // accounts hash calc doesn't include unrooted slots
-                panic!("cannot verify bank hash when bank is not a root");
+                panic!("cannot verify accounts hash because slot {slot} is not a root");
             }
         }
-        let slot = self.slot();
-        let ancestors = &self.ancestors;
         let cap = self.capitalization();
-        let epoch_schedule = self.epoch_schedule();
-        let rent_collector = self.rent_collector();
+        let verify_config = VerifyAccountsHashAndLamportsConfig {
+            ancestors: &self.ancestors,
+            epoch_schedule: self.epoch_schedule(),
+            rent_collector: self.rent_collector(),
+            test_hash_calculation: config.test_hash_calculation,
+            ignore_mismatch: config.ignore_mismatch,
+            store_detailed_debug_info: config.store_hash_raw_data_for_debug,
+            use_bg_thread_pool: config.run_in_background,
+        };
         if config.run_in_background {
-            let ancestors = ancestors.clone();
             let accounts = Arc::clone(accounts);
-            let epoch_schedule = epoch_schedule.clone();
-            let rent_collector = rent_collector.clone();
             let accounts_ = Arc::clone(&accounts);
+            let ancestors = self.ancestors.clone();
+            let epoch_schedule = self.epoch_schedule().clone();
+            let rent_collector = self.rent_collector().clone();
             accounts.accounts_db.verify_accounts_hash_in_bg.start(|| {
                 Builder::new()
                     .name("solBgHashVerify".into())
@@ -5654,12 +5667,9 @@ impl Bank {
                             base,
                             VerifyAccountsHashAndLamportsConfig {
                                 ancestors: &ancestors,
-                                test_hash_calculation: config.test_hash_calculation,
                                 epoch_schedule: &epoch_schedule,
                                 rent_collector: &rent_collector,
-                                ignore_mismatch: config.ignore_mismatch,
-                                store_detailed_debug_info: config.store_hash_raw_data_for_debug,
-                                use_bg_thread_pool: true,
+                                ..verify_config
                             },
                         );
                         accounts_
@@ -5673,20 +5683,7 @@ impl Bank {
             });
             true // initial result is true. We haven't failed yet. If verification fails, we'll panic from bg thread.
         } else {
-            let result = accounts.verify_accounts_hash_and_lamports(
-                slot,
-                cap,
-                base,
-                VerifyAccountsHashAndLamportsConfig {
-                    ancestors,
-                    test_hash_calculation: config.test_hash_calculation,
-                    epoch_schedule,
-                    rent_collector,
-                    ignore_mismatch: config.ignore_mismatch,
-                    store_detailed_debug_info: config.store_hash_raw_data_for_debug,
-                    use_bg_thread_pool: false, // fg is waiting for this to run, so we can use the fg thread pool
-                },
-            );
+            let result = accounts.verify_accounts_hash_and_lamports(slot, cap, base, verify_config);
             self.set_initial_accounts_hash_verification_completed();
             result
         }
@@ -6718,8 +6715,16 @@ impl Bank {
         reload: bool,
         effective_epoch: Epoch,
     ) -> Option<Arc<ProgramCacheEntry>> {
-        self.transaction_processor
-            .load_program_with_pubkey(self, pubkey, reload, effective_epoch)
+        let program_cache = self.transaction_processor.program_cache.read().unwrap();
+        load_program_with_pubkey(
+            self,
+            &program_cache,
+            pubkey,
+            self.slot(),
+            effective_epoch,
+            self.epoch_schedule(),
+            reload,
+        )
     }
 
     pub fn fee_structure(&self) -> &FeeStructure {
@@ -6733,6 +6738,40 @@ impl Bank {
     pub fn add_builtin(&self, program_id: Pubkey, name: &str, builtin: ProgramCacheEntry) {
         self.transaction_processor
             .add_builtin(self, program_id, name, builtin)
+    }
+
+    /// Find the slot in which the program was most recently modified.
+    /// Returns slot 0 for programs deployed with v1/v2 loaders, since programs deployed
+    /// with those loaders do not retain deployment slot information.
+    /// Returns an error if the program's account state can not be found or parsed.
+    fn program_modification_slot(&self, pubkey: &Pubkey) -> transaction::Result<Slot> {
+        let program = self
+            .get_account(pubkey)
+            .ok_or(TransactionError::ProgramAccountNotFound)?;
+        if bpf_loader_upgradeable::check_id(program.owner()) {
+            if let Ok(UpgradeableLoaderState::Program {
+                programdata_address,
+            }) = program.state()
+            {
+                let programdata = self
+                    .get_account(&programdata_address)
+                    .ok_or(TransactionError::ProgramAccountNotFound)?;
+                if let Ok(UpgradeableLoaderState::ProgramData {
+                    slot,
+                    upgrade_authority_address: _,
+                }) = programdata.state()
+                {
+                    return Ok(slot);
+                }
+            }
+            Err(TransactionError::ProgramAccountNotFound)
+        } else if loader_v4::check_id(program.owner()) {
+            let state = solana_loader_v4_program::get_state(program.data())
+                .map_err(|_| TransactionError::ProgramAccountNotFound)?;
+            Ok(state.slot)
+        } else {
+            Ok(0)
+        }
     }
 }
 
@@ -6767,8 +6806,7 @@ impl TransactionProcessingCallback for Bank {
 
     fn get_program_match_criteria(&self, program: &Pubkey) -> ProgramCacheMatchCriteria {
         if self.check_program_modification_slot {
-            self.transaction_processor
-                .program_modification_slot(self, program)
+            self.program_modification_slot(program)
                 .map_or(ProgramCacheMatchCriteria::Tombstone, |slot| {
                     ProgramCacheMatchCriteria::DeployedOnOrAfterSlot(slot)
                 })

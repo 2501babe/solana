@@ -61,7 +61,7 @@ use {
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount},
         account_utils::StateMut,
-        clock::{Slot, UnixTimestamp, MAX_RECENT_BLOCKHASHES},
+        clock::{Slot, UnixTimestamp, MAX_PROCESSING_AGE},
         commitment_config::{CommitmentConfig, CommitmentLevel},
         epoch_info::EpochInfo,
         epoch_schedule::EpochSchedule,
@@ -3676,8 +3676,7 @@ pub mod rpc_full {
                 // It provides a fallback timeout for durable-nonce transaction retries in case of
                 // malicious packing of the retry queue. Durable-nonce transactions are otherwise
                 // retried until the nonce is advanced.
-                last_valid_block_height =
-                    preflight_bank.block_height() + MAX_RECENT_BLOCKHASHES as u64;
+                last_valid_block_height = preflight_bank.block_height() + MAX_PROCESSING_AGE as u64;
             }
 
             if !skip_preflight {
@@ -4775,7 +4774,7 @@ pub mod tests {
                 self,
                 state::{AddressLookupTable, LookupTableMeta},
             },
-            clock::MAX_RECENT_BLOCKHASHES,
+            clock::MAX_PROCESSING_AGE,
             compute_budget::ComputeBudgetInstruction,
             fee_calculator::{FeeRateGovernor, DEFAULT_BURN_PERCENT},
             hash::{hash, Hash},
@@ -4807,7 +4806,8 @@ pub mod tests {
         spl_token_2022::{
             extension::{
                 immutable_owner::ImmutableOwner, memo_transfer::MemoTransfer,
-                mint_close_authority::MintCloseAuthority, ExtensionType, StateWithExtensionsMut,
+                mint_close_authority::MintCloseAuthority, BaseStateWithExtensionsMut,
+                ExtensionType, StateWithExtensionsMut,
             },
             solana_program::{program_option::COption, pubkey::Pubkey as SplTokenPubkey},
             state::{AccountState as TokenAccountState, Mint},
@@ -5263,6 +5263,7 @@ pub mod tests {
     #[test]
     fn test_rpc_get_cluster_nodes() {
         let rpc = RpcHandler::start();
+        let version = solana_version::Version::default();
         let request = create_test_request("getClusterNodes", None);
         let result: Value = parse_success_result(rpc.handle_request_sync(request));
         let expected = json!([{
@@ -5273,8 +5274,8 @@ pub mod tests {
             "tpuQuic": "127.0.0.1:8009",
             "rpc": format!("127.0.0.1:{}", rpc_port::DEFAULT_RPC_PORT),
             "pubsub": format!("127.0.0.1:{}", rpc_port::DEFAULT_RPC_PUBSUB_PORT),
-            "version": null,
-            "featureSet": null,
+            "version": format!("{version}"),
+            "featureSet": version.feature_set,
         }, {
             "pubkey": rpc.leader_pubkey().to_string(),
             "gossip": "127.0.0.1:1235",
@@ -5283,8 +5284,8 @@ pub mod tests {
             "tpuQuic": "127.0.0.1:1240",
             "rpc": format!("127.0.0.1:{}", rpc_port::DEFAULT_RPC_PORT),
             "pubsub": format!("127.0.0.1:{}", rpc_port::DEFAULT_RPC_PUBSUB_PORT),
-            "version": null,
-            "featureSet": null,
+            "version": format!("{version}"),
+            "featureSet": version.feature_set,
         }]);
         assert_eq!(result, expected);
     }
@@ -6763,8 +6764,8 @@ pub mod tests {
                     "feeCalculator": {
                         "lamportsPerSignature": TEST_SIGNATURE_FEE,
                     },
-                    "lastValidSlot": MAX_RECENT_BLOCKHASHES,
-                    "lastValidBlockHeight": MAX_RECENT_BLOCKHASHES,
+                    "lastValidSlot": MAX_PROCESSING_AGE,
+                    "lastValidBlockHeight": MAX_PROCESSING_AGE,
                 },
             },
             "id": 1
