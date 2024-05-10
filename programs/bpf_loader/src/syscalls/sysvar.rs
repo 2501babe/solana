@@ -1,7 +1,7 @@
 use super::*;
 
 fn get_sysvar<T: std::fmt::Debug + Sysvar + SysvarId + Clone>(
-    sysvar: Result<T, InstructionError>,
+    sysvar: Result<Arc<T>, InstructionError>,
     var_addr: u64,
     check_aligned: bool,
     memory_mapping: &mut MemoryMapping,
@@ -16,11 +16,12 @@ fn get_sysvar<T: std::fmt::Debug + Sysvar + SysvarId + Clone>(
     )?;
     let var = translate_type_mut::<T>(memory_mapping, var_addr, check_aligned)?;
 
-    // this clone looks unecessary, but it exists to zero out trailing alignment bytes
+    // this clone looks unecessary now, but it exists to zero out trailing alignment bytes
     // it is unclear whether this should ever matter
     // but there are tests using MemoryMapping that expect to see this
     // we preserve the previous behavior out of an abundance of caution
-    *var = sysvar?.clone();
+    let sysvar: Arc<T> = sysvar?;
+    *var = T::clone(sysvar.as_ref());
 
     Ok(SUCCESS)
 }

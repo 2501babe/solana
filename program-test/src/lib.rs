@@ -202,7 +202,7 @@ macro_rules! processor {
 }
 
 fn get_sysvar<T: Default + Sysvar + Sized + serde::de::DeserializeOwned + Clone>(
-    sysvar: Result<T, InstructionError>,
+    sysvar: Result<Arc<T>, InstructionError>,
     var_addr: *mut u8,
 ) -> u64 {
     let invoke_context = get_invoke_context();

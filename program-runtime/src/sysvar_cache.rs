@@ -71,34 +71,37 @@ impl SysvarCache {
     }
 
     // most if not all of the obj getter functions can be removed once builtins transition to bpf
+    // the Arc<T> wrapper is to preserve the existing public interface
     fn get_sysvar_obj<T: DeserializeOwned>(
         &self,
         sysvar_id: &Pubkey,
-    ) -> Result<T, InstructionError> {
+    ) -> Result<Arc<T>, InstructionError> {
         if let Some(ref sysvar_buf) = self.sysvar_id_to_buffer(sysvar_id) {
-            bincode::deserialize(sysvar_buf).map_err(|_| InstructionError::UnsupportedSysvar)
+            bincode::deserialize(sysvar_buf)
+                .map(Arc::new)
+                .map_err(|_| InstructionError::UnsupportedSysvar)
         } else {
             Err(InstructionError::UnsupportedSysvar)
         }
     }
 
-    pub fn get_clock(&self) -> Result<Clock, InstructionError> {
+    pub fn get_clock(&self) -> Result<Arc<Clock>, InstructionError> {
         self.get_sysvar_obj(&Clock::id())
     }
 
-    pub fn get_epoch_schedule(&self) -> Result<EpochSchedule, InstructionError> {
+    pub fn get_epoch_schedule(&self) -> Result<Arc<EpochSchedule>, InstructionError> {
         self.get_sysvar_obj(&EpochSchedule::id())
     }
 
-    pub fn get_epoch_rewards(&self) -> Result<EpochRewards, InstructionError> {
+    pub fn get_epoch_rewards(&self) -> Result<Arc<EpochRewards>, InstructionError> {
         self.get_sysvar_obj(&EpochRewards::id())
     }
 
-    pub fn get_rent(&self) -> Result<Rent, InstructionError> {
+    pub fn get_rent(&self) -> Result<Arc<Rent>, InstructionError> {
         self.get_sysvar_obj(&Rent::id())
     }
 
-    pub fn get_last_restart_slot(&self) -> Result<LastRestartSlot, InstructionError> {
+    pub fn get_last_restart_slot(&self) -> Result<Arc<LastRestartSlot>, InstructionError> {
         self.get_sysvar_obj(&LastRestartSlot::id())
     }
 
@@ -116,16 +119,20 @@ impl SysvarCache {
 
     #[deprecated]
     #[allow(deprecated)]
-    pub fn get_fees(&self) -> Result<Fees, InstructionError> {
-        self.fees.clone().ok_or(InstructionError::UnsupportedSysvar)
+    pub fn get_fees(&self) -> Result<Arc<Fees>, InstructionError> {
+        self.fees
+            .clone()
+            .ok_or(InstructionError::UnsupportedSysvar)
+            .map(Arc::new)
     }
 
     #[deprecated]
     #[allow(deprecated)]
-    pub fn get_recent_blockhashes(&self) -> Result<RecentBlockhashes, InstructionError> {
+    pub fn get_recent_blockhashes(&self) -> Result<Arc<RecentBlockhashes>, InstructionError> {
         self.recent_blockhashes
             .clone()
             .ok_or(InstructionError::UnsupportedSysvar)
+            .map(Arc::new)
     }
 
     pub fn fill_missing_entries<F: FnMut(&Pubkey, &mut dyn FnMut(&[u8]))>(
@@ -239,7 +246,7 @@ pub mod get_sysvar_with_account_check {
         invoke_context: &InvokeContext,
         instruction_context: &InstructionContext,
         instruction_account_index: IndexOfAccount,
-    ) -> Result<Clock, InstructionError> {
+    ) -> Result<Arc<Clock>, InstructionError> {
         check_sysvar_account::<Clock>(
             invoke_context.transaction_context,
             instruction_context,
@@ -252,7 +259,7 @@ pub mod get_sysvar_with_account_check {
         invoke_context: &InvokeContext,
         instruction_context: &InstructionContext,
         instruction_account_index: IndexOfAccount,
-    ) -> Result<Rent, InstructionError> {
+    ) -> Result<Arc<Rent>, InstructionError> {
         check_sysvar_account::<Rent>(
             invoke_context.transaction_context,
             instruction_context,
@@ -279,7 +286,7 @@ pub mod get_sysvar_with_account_check {
         invoke_context: &InvokeContext,
         instruction_context: &InstructionContext,
         instruction_account_index: IndexOfAccount,
-    ) -> Result<RecentBlockhashes, InstructionError> {
+    ) -> Result<Arc<RecentBlockhashes>, InstructionError> {
         check_sysvar_account::<RecentBlockhashes>(
             invoke_context.transaction_context,
             instruction_context,
@@ -305,7 +312,7 @@ pub mod get_sysvar_with_account_check {
         invoke_context: &InvokeContext,
         instruction_context: &InstructionContext,
         instruction_account_index: IndexOfAccount,
-    ) -> Result<LastRestartSlot, InstructionError> {
+    ) -> Result<Arc<LastRestartSlot>, InstructionError> {
         check_sysvar_account::<LastRestartSlot>(
             invoke_context.transaction_context,
             instruction_context,
