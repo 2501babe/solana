@@ -84,7 +84,7 @@ impl StakeHistoryGetEntry for StakeHistorySysvar {
     fn get_entry(&self, target_epoch: Epoch) -> Option<StakeHistoryEntry> {
         let current_epoch = self.0;
         let newest_historical_epoch = current_epoch.checked_sub(1)?;
-        let oldest_historical_epoch = newest_historical_epoch.saturating_sub(MAX_ENTRIES as u64);
+        let oldest_historical_epoch = current_epoch.saturating_sub(MAX_ENTRIES as u64);
 
         // target epoch is before the beginning of time; this is a user error
         if target_epoch == 0 {
@@ -130,7 +130,41 @@ impl StakeHistoryGetEntry for StakeHistorySysvar {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, crate::stake_history::*};
+    use {
+        super::*,
+        crate::{
+            entrypoint::SUCCESS,
+            program_stubs::{set_syscall_stubs, SyscallStubs},
+            stake_history::*,
+        },
+    };
+
+    struct MockStakeHistorySyscall {
+        stake_history: StakeHistory,
+    }
+
+    impl SyscallStubs for MockStakeHistorySyscall {
+        #[allow(clippy::arithmetic_side_effects)]
+        fn sol_get_sysvar(
+            &self,
+            _sysvar_id_addr: *const u8,
+            var_addr: *mut u8,
+            offset: u64,
+            length: u64,
+        ) -> u64 {
+            let data = bincode::serialize(&self.stake_history).unwrap();
+            let slice = unsafe { std::slice::from_raw_parts_mut(var_addr, length as usize) };
+            slice.copy_from_slice(&data[offset as usize..(offset + length) as usize]);
+            SUCCESS
+        }
+    }
+
+    fn mock_get_sysvar_syscall(stake_history: StakeHistory) {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            set_syscall_stubs(Box::new(MockStakeHistorySyscall { stake_history }));
+        });
+    }
 
     #[test]
     fn test_size_of() {
@@ -149,18 +183,6 @@ mod tests {
             bincode::serialized_size(&stake_history).unwrap() as usize,
             StakeHistory::size_of()
         );
-    }
-
-    #[test]
-    fn test_precompute_entry_size() {
-        let mut stake_history = StakeHistory::default();
-        stake_history.add(
-            1,
-            StakeHistoryEntry {
-                activating: 1,
-                ..StakeHistoryEntry::default()
-            },
-        );
 
         let stake_history_inner: Vec<(Epoch, StakeHistoryEntry)> =
             bincode::deserialize(&bincode::serialize(&stake_history).unwrap()).unwrap();
@@ -173,26 +195,51 @@ mod tests {
     }
 
     #[test]
-    fn test_create_account() {
+    fn test_stake_history_get_entry() {
+        let unique_entry_for_epoch = |epoch: u64| StakeHistoryEntry {
+            activating: epoch % 2,
+            deactivating: epoch % 3,
+            effective: epoch % 5,
+        };
+
+        let current_epoch = MAX_ENTRIES as u64 + 2;
+
+        // make a stake history object with at least one valid entry that has expired
         let mut stake_history = StakeHistory::default();
-        for i in 0..MAX_ENTRIES as u64 + 1 {
-            stake_history.add(
-                i,
-                StakeHistoryEntry {
-                    activating: i,
-                    ..StakeHistoryEntry::default()
-                },
-            );
+        for i in 0..current_epoch {
+            stake_history.add(i, unique_entry_for_epoch(i));
         }
         assert_eq!(stake_history.len(), MAX_ENTRIES);
-        assert_eq!(stake_history.iter().map(|entry| entry.0).min().unwrap(), 1);
+        assert_eq!(stake_history.iter().map(|entry| entry.0).min().unwrap(), 2);
+
+        // set up sol_get_sysvar
+        mock_get_sysvar_syscall(stake_history.clone());
+
+        // make a syscall interface object
+        let stake_history_sysvar = StakeHistorySysvar::new(current_epoch).unwrap();
+
+        // now test the stake history interfaces
+
         assert_eq!(stake_history.get(0), None);
-        assert_eq!(
-            stake_history.get(1),
-            Some(&StakeHistoryEntry {
-                activating: 1,
-                ..StakeHistoryEntry::default()
-            })
-        );
+        assert_eq!(stake_history.get(1), None);
+        assert_eq!(stake_history.get(current_epoch), None);
+
+        assert_eq!(stake_history.get_entry(0), None);
+        assert_eq!(stake_history.get_entry(1), None);
+        assert_eq!(stake_history.get_entry(current_epoch), None);
+
+        assert_eq!(stake_history_sysvar.get_entry(0), None);
+        assert_eq!(stake_history_sysvar.get_entry(1), None);
+        assert_eq!(stake_history_sysvar.get_entry(current_epoch), None);
+
+        for i in 2..current_epoch {
+            let entry = Some(unique_entry_for_epoch(i));
+
+            assert_eq!(stake_history.get(i), entry.as_ref(),);
+
+            assert_eq!(stake_history.get_entry(i), entry,);
+
+            assert_eq!(stake_history_sysvar.get_entry(i), entry,);
+        }
     }
 }
