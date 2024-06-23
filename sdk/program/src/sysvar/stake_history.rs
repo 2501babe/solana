@@ -105,6 +105,9 @@ impl StakeHistoryGetEntry for StakeHistorySysvar {
             .checked_mul(EPOCH_AND_ENTRY_SERIALIZED_SIZE)?
             .checked_add(std::mem::size_of::<u64>() as u64)?;
 
+        println!("HANA current: {}, newest: {}, oldest: {}, target: {}, delta: {}, offset: {}, e&s: {}, u64: {}",
+        current_epoch, newest_historical_epoch, oldest_historical_epoch, target_epoch, epoch_delta, offset, EPOCH_AND_ENTRY_SERIALIZED_SIZE, std::mem::size_of::<u64>());
+
         let mut entry_buf = [0; EPOCH_AND_ENTRY_SERIALIZED_SIZE as usize];
         let result = get_sysvar(
             &mut entry_buf,
@@ -153,6 +156,12 @@ mod tests {
             length: u64,
         ) -> u64 {
             let data = bincode::serialize(&self.stake_history).unwrap();
+            println!(
+                "HANA solgetsv stub, offset: {}, length: {}, data len: {}",
+                offset,
+                length,
+                data.len()
+            );
             let slice = unsafe { std::slice::from_raw_parts_mut(var_addr, length as usize) };
             slice.copy_from_slice(&data[offset as usize..(offset + length) as usize]);
             SUCCESS

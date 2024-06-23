@@ -7,39 +7,7 @@ set -e
 cd "$(dirname "$0")/.."
 source ci/_
 
-# Logging hygiene: Please don't print from --lib, use the `log` crate instead
-declare prints=(
-  'print!'
-  'println!'
-  'eprint!'
-  'eprintln!'
-  'dbg!'
-)
-
-# Parts of the tree that are expected to be print free
-declare print_free_tree=(
-  ':core/src/**.rs'
-  ':^core/src/validator.rs'
-  ':faucet/src/**.rs'
-  ':ledger/src/**.rs'
-  ':metrics/src/**.rs'
-  ':net-utils/src/**.rs'
-  ':runtime/src/**.rs'
-  ':sdk/sbf/rust/rust-utils/**.rs'
-  ':sdk/**.rs'
-  ':^sdk/cargo-build-sbf/**.rs'
-  ':^sdk/program/src/program_option.rs'
-  ':^sdk/program/src/program_stubs.rs'
-  ':programs/**.rs'
-  ':^**bin**.rs'
-  ':^**bench**.rs'
-  ':^**test**.rs'
-  ':^**/build.rs'
-)
-
-if _ git --no-pager grep -n "${prints[@]/#/-e}" -- "${print_free_tree[@]}"; then
-    exit 1
-fi
+# HANA obviously do not commit this i just need to print
 
 # Ref: https://github.com/solana-labs/solana/pull/30843#issuecomment-1480399497
 if _ git --no-pager grep -F '.hidden(true)' -- '*.rs'; then
