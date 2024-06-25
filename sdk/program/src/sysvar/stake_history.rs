@@ -164,6 +164,15 @@ mod tests {
             );
             let slice = unsafe { std::slice::from_raw_parts_mut(var_addr, length as usize) };
             slice.copy_from_slice(&data[offset as usize..(offset + length) as usize]);
+
+            println!(
+                "HANA copied!! {}..{}\n     data: {:?}\n    slice: {:?}\n",
+                offset,
+                offset + length,
+                &data[offset as usize..(offset + length) as usize],
+                slice
+            );
+
             SUCCESS
         }
     }
