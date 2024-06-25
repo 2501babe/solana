@@ -206,9 +206,9 @@ mod tests {
     #[test]
     fn test_stake_history_get_entry() {
         let unique_entry_for_epoch = |epoch: u64| StakeHistoryEntry {
-            activating: epoch % 2,
-            deactivating: epoch % 3,
-            effective: epoch % 5,
+            activating: epoch * 2,
+            deactivating: epoch * 3,
+            effective: epoch * 5,
         };
 
         let current_epoch = MAX_ENTRIES as u64 + 2;
@@ -220,6 +220,8 @@ mod tests {
         }
         assert_eq!(stake_history.len(), MAX_ENTRIES);
         assert_eq!(stake_history.iter().map(|entry| entry.0).min().unwrap(), 2);
+
+        println!("{:#?}", stake_history);
 
         // set up sol_get_sysvar
         mock_get_sysvar_syscall(stake_history.clone());
