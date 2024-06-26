@@ -158,7 +158,10 @@ mod tests {
             offset: u64,
             length: u64,
         ) -> u64 {
-            let data = bincode::serialize(&self.stake_history).unwrap();
+            println!("HANA serializing data");
+            let res = bincode::serialize(&self.stake_history);
+            println!("HANA serialization ok? {}", res.is_ok());
+            let data = res.unwrap();
             println!(
                 "HANA solgetsv stub, offset: {}, length: {}, data len: {}",
                 offset,
