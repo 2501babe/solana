@@ -267,10 +267,16 @@ fn get_sysvar(
     let var_addr = dst as *mut _ as *mut u8;
 
     #[cfg(target_os = "solana")]
-    let result = unsafe { crate::syscalls::sol_get_sysvar(sysvar_id, var_addr, offset, length) };
+    let result = {
+        println!("HANA true syscall");
+        unsafe { crate::syscalls::sol_get_sysvar(sysvar_id, var_addr, offset, length) }
+    };
 
     #[cfg(not(target_os = "solana"))]
-    let result = crate::program_stubs::sol_get_sysvar(sysvar_id, var_addr, offset, length);
+    let result = {
+        println!("HANA stub");
+        crate::program_stubs::sol_get_sysvar(sysvar_id, var_addr, offset, length)
+    };
 
     match result {
         crate::entrypoint::SUCCESS => Ok(()),

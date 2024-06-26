@@ -108,13 +108,16 @@ impl StakeHistoryGetEntry for StakeHistorySysvar {
         println!("HANA current: {}, newest: {}, oldest: {}, target: {}, delta: {}, offset: {}, e&s: {}, u64: {}",
         current_epoch, newest_historical_epoch, oldest_historical_epoch, target_epoch, epoch_delta, offset, EPOCH_AND_ENTRY_SERIALIZED_SIZE, std::mem::size_of::<u64>());
 
+        println!("HANA creating buffer");
         let mut entry_buf = [0; EPOCH_AND_ENTRY_SERIALIZED_SIZE as usize];
+        println!("HANA calling syscall");
         let result = get_sysvar(
             &mut entry_buf,
             &StakeHistory::id(),
             offset,
             EPOCH_AND_ENTRY_SERIALIZED_SIZE,
         );
+        println!("HANA done! syscall\n");
 
         match result {
             Ok(()) => {
@@ -166,7 +169,7 @@ mod tests {
             slice.copy_from_slice(&data[offset as usize..(offset + length) as usize]);
 
             println!(
-                "HANA copied!! {}..{}\n     data: {:?}\n    slice: {:?}\n",
+                "HANA copied!! {}..{}\n     data: {:?}\n    slice: {:?}",
                 offset,
                 offset + length,
                 &data[offset as usize..(offset + length) as usize],
