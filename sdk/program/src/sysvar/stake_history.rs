@@ -138,57 +138,9 @@ impl StakeHistoryGetEntry for StakeHistorySysvar {
 mod tests {
     use {
         super::*,
-        crate::{
-            entrypoint::SUCCESS,
-            program_stubs::{set_syscall_stubs, SyscallStubs},
-            stake_history::*,
-        },
+        crate::{stake_history::*, sysvar::tests::mock_get_sysvar_syscall},
+        serial_test::serial,
     };
-
-    struct MockStakeHistorySyscall {
-        stake_history: StakeHistory,
-    }
-
-    impl SyscallStubs for MockStakeHistorySyscall {
-        #[allow(clippy::arithmetic_side_effects)]
-        fn sol_get_sysvar(
-            &self,
-            _sysvar_id_addr: *const u8,
-            var_addr: *mut u8,
-            offset: u64,
-            length: u64,
-        ) -> u64 {
-            println!("HANA serializing data");
-            let res = bincode::serialize(&self.stake_history);
-            println!("HANA serialization ok? {}", res.is_ok());
-            let data = res.unwrap();
-            println!(
-                "HANA solgetsv stub, offset: {}, length: {}, data len: {}",
-                offset,
-                length,
-                data.len()
-            );
-            let slice = unsafe { std::slice::from_raw_parts_mut(var_addr, length as usize) };
-            slice.copy_from_slice(&data[offset as usize..(offset + length) as usize]);
-
-            println!(
-                "HANA copied!! {}..{}\n     data: {:?}\n    slice: {:?}",
-                offset,
-                offset + length,
-                &data[offset as usize..(offset + length) as usize],
-                slice
-            );
-
-            SUCCESS
-        }
-    }
-
-    fn mock_get_sysvar_syscall(stake_history: StakeHistory) {
-        static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| {
-            set_syscall_stubs(Box::new(MockStakeHistorySyscall { stake_history }));
-        });
-    }
 
     #[test]
     fn test_size_of() {
@@ -218,6 +170,7 @@ mod tests {
         );
     }
 
+    #[serial]
     #[test]
     fn test_stake_history_get_entry() {
         let unique_entry_for_epoch = |epoch: u64| StakeHistoryEntry {
@@ -239,7 +192,7 @@ mod tests {
         println!("{:#?}", stake_history);
 
         // set up sol_get_sysvar
-        mock_get_sysvar_syscall(stake_history.clone());
+        mock_get_sysvar_syscall(&bincode::serialize(&stake_history).unwrap());
 
         // make a syscall interface object
         let stake_history_sysvar = StakeHistorySysvar::new(current_epoch).unwrap();
