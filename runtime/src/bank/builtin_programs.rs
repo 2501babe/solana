@@ -165,6 +165,16 @@ mod tests_core_bpf_migration {
 
         let (bank, bank_forks) = root_bank.wrap_with_bank_forks_for_tests();
 
+        // XXX check the old builtin
+        let _ = bank.process_transaction(&Transaction::new(
+            &vec![&mint_keypair],
+            Message::new(
+                &[Instruction::new_with_bytes(*builtin_id, &[], Vec::new())],
+                Some(&mint_keypair.pubkey()),
+            ),
+            bank.last_blockhash(),
+        ));
+
         // Advance to the next epoch without activating the feature.
         let mut first_slot_in_next_epoch = slots_per_epoch + 1;
         let bank = new_bank_from_parent_with_bank_forks(

@@ -241,6 +241,11 @@ fn load_transaction_accounts<CB: TransactionProcessingCallback>(
                         .ok_or(TransactionError::AccountNotFound)?;
                     // Optimization to skip loading of accounts which are only used as
                     // programs in top-level instructions and not passed as instruction accounts.
+                    println!(
+                        "HANA program_id: {}, callback output: {:#?}",
+                        key,
+                        callbacks.get_account_shared_data(key).unwrap()
+                    );
                     let program_account = account_shared_data_from_program(&program);
                     (program.account_size, program_account, 0)
                 } else {
