@@ -1150,7 +1150,13 @@ mod tests {
 
     impl<'a> From<&'a MockBankCallback> for AccountLoader<'a, MockBankCallback> {
         fn from(callbacks: &'a MockBankCallback) -> AccountLoader<'a, MockBankCallback> {
-            AccountLoader::new(callbacks, None, ProgramCacheForTxBatch::default())
+            let capacity = callbacks.account_shared_data.read().unwrap().len();
+            AccountLoader::new_with_capacity(
+                callbacks,
+                None,
+                ProgramCacheForTxBatch::default(),
+                capacity,
+            )
         }
     }
 
@@ -2446,10 +2452,11 @@ mod tests {
             account_shared_data: Arc::new(RwLock::new(mock_accounts)),
             ..Default::default()
         };
-        let mut account_loader = AccountLoader::new(
+        let mut account_loader = AccountLoader::new_with_capacity(
             &mock_bank,
             Some(&account_overrides),
             ProgramCacheForTxBatch::default(),
+            2,
         );
 
         let mut error_counters = TransactionErrorMetrics::default();

@@ -805,7 +805,12 @@ mod tests {
 
     impl<'a> From<&'a TestCallbacks> for AccountLoader<'a, TestCallbacks> {
         fn from(callbacks: &'a TestCallbacks) -> AccountLoader<'a, TestCallbacks> {
-            AccountLoader::new(callbacks, None, ProgramCacheForTxBatch::default())
+            AccountLoader::new_with_capacity(
+                callbacks,
+                None,
+                ProgramCacheForTxBatch::default(),
+                callbacks.accounts_map.len(),
+            )
         }
     }
 
@@ -1135,10 +1140,11 @@ mod tests {
             accounts_map,
             ..Default::default()
         };
-        let mut account_loader = AccountLoader::new(
+        let mut account_loader = AccountLoader::new_with_capacity(
             &callbacks,
             account_overrides,
             ProgramCacheForTxBatch::default(),
+            accounts.len(),
         );
         load_transaction(
             &mut account_loader,
@@ -1547,7 +1553,8 @@ mod tests {
         let mut loaded_programs = ProgramCacheForTxBatch::default();
         loaded_programs.replenish(key2.pubkey(), Arc::new(ProgramCacheEntry::default()));
 
-        let mut account_loader = AccountLoader::new(&mock_bank, None, loaded_programs);
+        let mut account_loader =
+            AccountLoader::new_with_capacity(&mock_bank, None, loaded_programs, 1);
 
         let sanitized_transaction = SanitizedTransaction::new_for_tests(
             sanitized_message,
