@@ -2462,6 +2462,23 @@ mod tests {
         assert_eq!(account.lamports(), 0);
     }
 
+    #[test]
+    fn test_load_account_dropped() {
+        let mock_bank = TestCallbacks::default();
+        let mut account_loader: AccountLoader<TestCallbacks> = (&mock_bank).into();
+
+        let address = Pubkey::new_unique();
+        let account = AccountSharedData::default();
+        let cache_item = AccountCacheItem {
+            account,
+            inspected_as_writable: false,
+        };
+        account_loader.account_cache.insert(address, cache_item);
+
+        let result = account_loader.load_account(&address, AccountUsagePattern::ReadOnlyInvisible);
+        assert!(result.is_none());
+    }
+
     // Ensure `TransactionProcessingCallback::inspect_account()` is called when
     // loading accounts for transaction processing.
     #[test]
