@@ -97,7 +97,6 @@ pub struct FeesOnlyTransaction {
     pub fee_details: FeeDetails,
 }
 
-#[derive(Debug)]
 #[cfg_attr(feature = "dev-context-only-utils", derive(Clone))]
 pub(crate) struct AccountLoader<'a, CB: TransactionProcessingCallback> {
     pub program_cache: ProgramCacheForTxBatch,
