@@ -9,6 +9,7 @@ use {
         },
         account_overrides::AccountOverrides,
         message_processor::MessageProcessor,
+        nonce_info::NonceInfo,
         program_loader::{get_program_modification_slot, load_program_with_pubkey},
         rollback_accounts::RollbackAccounts,
         transaction_account_state_info::TransactionAccountStateInfo,
@@ -494,38 +495,13 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             fee_details.total_fee(),
         )?;
 
-        // If the nonce has been used in this batch already, we must drop the transaction
-        // This is the same as if it was used in different batches in the same slot
-        // If the nonce account was closed in the batch, we error as if the blockhash didn't validate
-        // We must validate the account in case it was reopened, either as a normal system account, or a fake nonce account
         if let Some(ref advanced_nonce_info) = advanced_nonce {
-            let nonces_are_equal = account_loader
-                .load_account(advanced_nonce_info.address(), AccountUsagePattern::Writable)
-                .and_then(|loaded_nonce| {
-                    let current_nonce_account = &loaded_nonce.account;
-                    system_program::check_id(current_nonce_account.owner()).then_some(())?;
-                    StateMut::<NonceVersions>::state(current_nonce_account).ok()
-                })
-                .and_then(
-                    |current_nonce_versions| match current_nonce_versions.state() {
-                        NonceState::Initialized(ref current_nonce_data) => {
-                            Some(&current_nonce_data.durable_nonce == durable_nonce)
-                        }
-                        _ => None,
-                    },
-                );
-
-            match nonces_are_equal {
-                Some(false) => (),
-                Some(true) => {
-                    error_counters.account_not_found += 1;
-                    return Err(TransactionError::AccountNotFound);
-                }
-                None => {
-                    error_counters.blockhash_not_found += 1;
-                    return Err(TransactionError::BlockhashNotFound);
-                }
-            }
+            Self::validate_transaction_nonce(
+                account_loader,
+                advanced_nonce_info,
+                durable_nonce,
+                error_counters,
+            )?;
         }
 
         // Capture fee-subtracted fee payer account and next nonce account state
@@ -544,6 +520,45 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             compute_budget_limits,
             loaded_fee_payer_account: loaded_fee_payer,
         })
+    }
+
+    fn validate_transaction_nonce<CB: TransactionProcessingCallback>(
+        account_loader: &mut AccountLoader<CB>,
+        advanced_nonce_info: &NonceInfo,
+        durable_nonce: &DurableNonce,
+        error_counters: &mut TransactionErrorMetrics,
+    ) -> transaction::Result<()> {
+        // If the nonce has been used in this batch already, we must drop the transaction
+        // This is the same as if it was used in different batches in the same slot
+        // If the nonce account was closed in the batch, we error as if the blockhash didn't validate
+        // We must validate the account in case it was reopened, either as a normal system account, or a fake nonce account
+        let nonces_are_equal = account_loader
+            .load_account(advanced_nonce_info.address(), AccountUsagePattern::Writable)
+            .and_then(|loaded_nonce| {
+                let current_nonce_account = &loaded_nonce.account;
+                system_program::check_id(current_nonce_account.owner()).then_some(())?;
+                StateMut::<NonceVersions>::state(current_nonce_account).ok()
+            })
+            .and_then(
+                |current_nonce_versions| match current_nonce_versions.state() {
+                    NonceState::Initialized(ref current_nonce_data) => {
+                        Some(&current_nonce_data.durable_nonce == durable_nonce)
+                    }
+                    _ => None,
+                },
+            );
+
+        match nonces_are_equal {
+            None => {
+                error_counters.blockhash_not_found += 1;
+                Err(TransactionError::BlockhashNotFound)
+            }
+            Some(true) => {
+                error_counters.account_not_found += 1;
+                Err(TransactionError::AccountNotFound)
+            }
+            Some(false) => Ok(()),
+        }
     }
 
     /// Returns a map from executable program accounts (all accounts owned by any loader)
