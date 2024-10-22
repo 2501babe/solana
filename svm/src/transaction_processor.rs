@@ -17,6 +17,7 @@ use {
         transaction_processing_callback::TransactionProcessingCallback,
         transaction_processing_result::{ProcessedTransaction, TransactionProcessingResult},
     },
+    itertools::Itertools,
     log::debug,
     percentage::Percentage,
     solana_bpf_loader_program::syscalls::{
@@ -263,7 +264,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         // Initialize metrics.
         let mut error_metrics = TransactionErrorMetrics::default();
         let mut execute_timings = ExecuteTimings::default();
-        let mut processing_results = vec![];
+        let mut processing_results = Vec::with_capacity(sanitized_txs.len());
 
         let (program_cache_for_tx_batch, program_cache_us) = measure_us!({
             let mut program_accounts_map = Self::filter_executable_program_accounts(
@@ -296,10 +297,17 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             program_cache_for_tx_batch
         });
 
-        let mut account_loader = AccountLoader::new(
+        let account_keys_in_batch = sanitized_txs
+            .iter()
+            .flat_map(|tx| tx.account_keys().iter())
+            .unique()
+            .count();
+
+        let mut account_loader = AccountLoader::new_with_capacity(
             callbacks,
             config.account_overrides,
             program_cache_for_tx_batch,
+            account_keys_in_batch,
         );
 
         let enable_transaction_loading_failure_fees = environment
@@ -489,13 +497,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         // If the nonce has been used in this batch already, we must drop the transaction
         // This is the same as if it was used in different batches in the same slot
         // If the nonce account was closed in the batch, we error as if the blockhash didn't validate
-        // We must vaidate the account in case it was reopened, either as a normal system account, or a fake nonce account
+        // We must validate the account in case it was reopened, either as a normal system account, or a fake nonce account
         if let Some(ref advanced_nonce_info) = advanced_nonce {
             let nonces_are_equal = account_loader
-                .load_account(
-                    advanced_nonce_info.address(),
-                    AccountUsagePattern::WritableInstruction,
-                )
+                .load_account(advanced_nonce_info.address(), AccountUsagePattern::Writable)
                 .and_then(|loaded_nonce| {
                     let current_nonce_account = &loaded_nonce.account;
                     system_program::check_id(current_nonce_account.owner()).then_some(())?;

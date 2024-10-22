@@ -7,6 +7,7 @@ use {
         transaction_processing_callback::{AccountState, TransactionProcessingCallback},
         transaction_processing_result::ProcessedTransaction,
     },
+    ahash::AHashMap,
     solana_compute_budget::compute_budget_limits::ComputeBudgetLimits,
     solana_feature_set::{self as feature_set, FeatureSet},
     solana_program_runtime::loaded_programs::{ProgramCacheEntry, ProgramCacheForTxBatch},
@@ -30,7 +31,7 @@ use {
     solana_svm_rent_collector::svm_rent_collector::SVMRentCollector,
     solana_svm_transaction::svm_message::SVMMessage,
     solana_system_program::{get_system_account_kind, SystemAccountKind},
-    std::{collections::HashMap, num::NonZeroU32},
+    std::num::NonZeroU32,
 };
 
 // for the load instructions
@@ -96,23 +97,25 @@ pub struct FeesOnlyTransaction {
     pub fee_details: FeeDetails,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+#[cfg_attr(feature = "dev-context-only-utils", derive(Clone))]
 pub(crate) struct AccountLoader<'a, CB: TransactionProcessingCallback> {
     pub program_cache: ProgramCacheForTxBatch,
     account_overrides: Option<&'a AccountOverrides>,
-    account_cache: HashMap<Pubkey, AccountCacheItem>,
+    account_cache: AHashMap<Pubkey, AccountCacheItem>,
     callbacks: &'a CB,
 }
 impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
-    pub fn new(
+    pub fn new_with_capacity(
         callbacks: &'a CB,
         account_overrides: Option<&'a AccountOverrides>,
         program_cache: ProgramCacheForTxBatch,
+        capacity: usize,
     ) -> AccountLoader<'a, CB> {
         Self {
             program_cache,
             account_overrides,
-            account_cache: HashMap::new(),
+            account_cache: AHashMap::with_capacity(capacity),
             callbacks,
         }
     }
@@ -122,8 +125,8 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
         account_key: &Pubkey,
         usage_pattern: AccountUsagePattern,
     ) -> Option<LoadedTransactionAccount> {
-        let is_writable = usage_pattern.is_writable();
-        let is_invisible = usage_pattern.is_invisible();
+        let is_writable = usage_pattern == AccountUsagePattern::Writable;
+        let is_invisible = usage_pattern == AccountUsagePattern::ReadOnlyInvisible;
 
         if let Some(cache_item) = self.account_cache.get_mut(account_key) {
             if !cache_item.inspected_as_writable {
@@ -322,9 +325,8 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub(crate) enum AccountUsagePattern {
     Writable,
-    Instruction,
-    WritableInstruction,
-    ImmutableInvisible,
+    ReadOnlyInstruction,
+    ReadOnlyInvisible,
 }
 impl AccountUsagePattern {
     pub fn new(message: &impl SVMMessage, account_index: usize) -> Self {
@@ -332,19 +334,10 @@ impl AccountUsagePattern {
         let is_instruction_account = message.is_instruction_account(account_index);
 
         match (is_writable, is_instruction_account) {
-            (true, true) => Self::WritableInstruction,
-            (true, false) => Self::Writable,
-            (false, true) => Self::Instruction,
-            (false, false) => Self::ImmutableInvisible,
+            (true, _) => Self::Writable,
+            (false, true) => Self::ReadOnlyInstruction,
+            (false, false) => Self::ReadOnlyInvisible,
         }
-    }
-
-    pub fn is_writable(self) -> bool {
-        self == Self::Writable || self == Self::WritableInstruction
-    }
-
-    pub fn is_invisible(self) -> bool {
-        self == Self::ImmutableInvisible
     }
 }
 
@@ -641,7 +634,7 @@ fn load_transaction_account<CB: TransactionProcessingCallback>(
         }
     } else if let Some(mut loaded_account) = account_loader.load_account(account_key, usage_pattern)
     {
-        loaded_account.rent_collected = if usage_pattern.is_writable() {
+        loaded_account.rent_collected = if usage_pattern == AccountUsagePattern::Writable {
             collect_rent_from_account(
                 feature_set,
                 rent_collector,
