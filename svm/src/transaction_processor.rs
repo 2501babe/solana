@@ -279,15 +279,20 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         ));
 
         let (mut program_cache_for_tx_batch, program_cache_us) = measure_us!({
-            let mut program_accounts_map = Self::filter_executable_program_accounts(
+            let account_keys_len = sanitized_txs.iter().map(|tx| tx.account_keys().len()).sum();
+
+            let mut program_accounts_map = HashMap::with_capacity(account_keys_len);
+            for builtin_program in self.builtin_program_ids.read().unwrap().iter() {
+                program_accounts_map.insert(*builtin_program, 0);
+            }
+
+            Self::filter_executable_program_accounts(
+                &mut program_accounts_map,
                 callbacks,
                 sanitized_txs,
                 &validation_results,
                 PROGRAM_OWNERS,
             );
-            for builtin_program in self.builtin_program_ids.read().unwrap().iter() {
-                program_accounts_map.insert(*builtin_program, 0);
-            }
 
             let program_cache_for_tx_batch = self.replenish_program_cache(
                 callbacks,
@@ -526,17 +531,17 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     /// Returns a map from executable program accounts (all accounts owned by any loader)
     /// to their usage counters, for the transactions with a valid blockhash or nonce.
     fn filter_executable_program_accounts<CB: TransactionProcessingCallback>(
+        program_accounts_map: &mut HashMap<Pubkey, u64>,
         callbacks: &CB,
         txs: &[impl SVMMessage],
         validation_results: &[TransactionValidationResult],
         program_owners: &[Pubkey],
-    ) -> HashMap<Pubkey, u64> {
-        let mut result: HashMap<Pubkey, u64> = HashMap::new();
+    ) {
         validation_results.iter().zip(txs).for_each(|etx| {
             if let (Ok(_), tx) = etx {
                 tx.account_keys()
                     .iter()
-                    .for_each(|key| match result.entry(*key) {
+                    .for_each(|key| match program_accounts_map.entry(*key) {
                         Entry::Occupied(mut entry) => {
                             let count = entry.get_mut();
                             saturating_add_assign!(*count, 1);
@@ -552,7 +557,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     });
             }
         });
-        result
     }
 
     #[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
@@ -1499,7 +1503,9 @@ mod tests {
         ];
         let owners = vec![owner1, owner2];
 
-        let result = TransactionBatchProcessor::<TestForkGraph>::filter_executable_program_accounts(
+        let mut result = HashMap::new();
+        TransactionBatchProcessor::<TestForkGraph>::filter_executable_program_accounts(
+            &mut result,
             &mock_bank,
             &transactions,
             &validation_results,
@@ -1580,16 +1586,17 @@ mod tests {
         let sanitized_tx2 = SanitizedTransaction::from_transaction_for_tests(tx2);
 
         let owners = &[program1_pubkey, program2_pubkey];
-        let programs =
-            TransactionBatchProcessor::<TestForkGraph>::filter_executable_program_accounts(
-                &bank,
-                &[sanitized_tx1, sanitized_tx2],
-                &[
-                    Ok(ValidatedTransactionDetails::default()),
-                    Ok(ValidatedTransactionDetails::default()),
-                ],
-                owners,
-            );
+        let mut programs = HashMap::new();
+        TransactionBatchProcessor::<TestForkGraph>::filter_executable_program_accounts(
+            &mut programs,
+            &bank,
+            &[sanitized_tx1, sanitized_tx2],
+            &[
+                Ok(ValidatedTransactionDetails::default()),
+                Ok(ValidatedTransactionDetails::default()),
+            ],
+            owners,
+        );
 
         // The result should contain only account3_pubkey, and account4_pubkey as the program accounts
         assert_eq!(programs.len(), 2);
@@ -1681,13 +1688,14 @@ mod tests {
             Ok(ValidatedTransactionDetails::default()),
             Err(TransactionError::BlockhashNotFound),
         ];
-        let programs =
-            TransactionBatchProcessor::<TestForkGraph>::filter_executable_program_accounts(
-                &bank,
-                &[sanitized_tx1, sanitized_tx2],
-                &validation_results,
-                owners,
-            );
+        let mut programs = HashMap::new();
+        TransactionBatchProcessor::<TestForkGraph>::filter_executable_program_accounts(
+            &mut programs,
+            &bank,
+            &[sanitized_tx1, sanitized_tx2],
+            &validation_results,
+            owners,
+        );
 
         // The result should contain only account3_pubkey as the program accounts
         assert_eq!(programs.len(), 1);
