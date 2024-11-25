@@ -10,7 +10,6 @@ use {
     ahash::AHashMap,
     solana_compute_budget::compute_budget_limits::ComputeBudgetLimits,
     solana_feature_set::{self as feature_set, FeatureSet},
-    solana_program_runtime::loaded_programs::ProgramCacheForTxBatch,
     solana_sdk::{
         account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
         fee::FeeDetails,
@@ -32,7 +31,7 @@ use {
     solana_svm_rent_collector::svm_rent_collector::SVMRentCollector,
     solana_svm_transaction::svm_message::SVMMessage,
     solana_system_program::{get_system_account_kind, SystemAccountKind},
-    std::{collections::HashMap, num::NonZeroU32, sync::Arc},
+    std::{num::NonZeroU32, sync::Arc},
 };
 
 // for the load instructions
@@ -100,8 +99,6 @@ pub struct FeesOnlyTransaction {
 
 #[cfg_attr(feature = "dev-context-only-utils", derive(Clone))]
 pub(crate) struct AccountLoader<'a, CB: TransactionProcessingCallback> {
-    pub(crate) program_cache: ProgramCacheForTxBatch,
-    program_accounts: HashMap<Pubkey, (&'a Pubkey, u64)>,
     account_cache: AHashMap<Pubkey, AccountSharedData>,
     callbacks: &'a CB,
     pub(crate) feature_set: Arc<FeatureSet>,
@@ -109,8 +106,6 @@ pub(crate) struct AccountLoader<'a, CB: TransactionProcessingCallback> {
 impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
     pub fn new_with_account_cache_capacity(
         account_overrides: Option<&'a AccountOverrides>,
-        program_cache: ProgramCacheForTxBatch,
-        program_accounts: HashMap<Pubkey, (&'a Pubkey, u64)>,
         callbacks: &'a CB,
         feature_set: Arc<FeatureSet>,
         capacity: usize,
@@ -126,10 +121,8 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
         }
 
         Self {
-            program_cache,
             account_cache,
             callbacks,
-            program_accounts,
             feature_set,
         }
     }
@@ -140,24 +133,6 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
         usage_pattern: AccountUsagePattern,
     ) -> Option<LoadedTransactionAccount> {
         let is_writable = usage_pattern == AccountUsagePattern::Writable;
-        let is_invisible_read = usage_pattern == AccountUsagePattern::ReadOnlyInvisible;
-        let use_program_cache = !self
-            .feature_set
-            .is_active(&feature_set::disable_account_loader_special_case::id());
-
-        if let Some(program) = (use_program_cache && is_invisible_read)
-            .then_some(())
-            .and_then(|_| self.program_cache.find(account_key))
-        {
-            // Optimization to skip loading of accounts which are only used as
-            // programs in top-level instructions and not passed as instruction accounts.
-            return Some(LoadedTransactionAccount {
-                loaded_size: program.account_size,
-                account: account_shared_data_from_program(account_key, &self.program_accounts)
-                    .ok()?,
-                rent_collected: 0,
-            });
-        }
 
         let account = if let Some(account) = self.account_cache.get(account_key) {
             // Inspect the account prior to collecting rent, since
@@ -201,9 +176,6 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
         executed_transaction: &ExecutedTransaction,
     ) {
         if executed_transaction.was_successful() {
-            self.program_cache
-                .merge(&executed_transaction.programs_modified_by_tx);
-
             self.update_accounts_for_successful_tx(
                 message,
                 &executed_transaction.loaded_transaction.accounts,
@@ -602,22 +574,6 @@ fn load_transaction_account<CB: TransactionProcessingCallback>(
     };
 
     Ok((loaded_account, account_found))
-}
-
-fn account_shared_data_from_program(
-    key: &Pubkey,
-    program_accounts: &HashMap<Pubkey, (&Pubkey, u64)>,
-) -> Result<AccountSharedData> {
-    // It's an executable program account. The program is already loaded in the cache.
-    // So the account data is not needed. Return a dummy AccountSharedData with meta
-    // information.
-    let mut program_account = AccountSharedData::default();
-    let (program_owner, _count) = program_accounts
-        .get(key)
-        .ok_or(TransactionError::AccountNotFound)?;
-    program_account.set_owner(**program_owner);
-    program_account.set_executable(true);
-    Ok(program_account)
 }
 
 /// Accumulate loaded account data size into `accumulated_accounts_data_size`.

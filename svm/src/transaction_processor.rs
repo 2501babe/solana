@@ -51,7 +51,6 @@ use {
         hash::Hash,
         inner_instruction::{InnerInstruction, InnerInstructionsList},
         instruction::{CompiledInstruction, TRANSACTION_LEVEL_STACK_HEIGHT},
-        native_loader,
         nonce::state::{DurableNonce, State as NonceState, Versions as NonceVersions},
         pubkey::Pubkey,
         rent_collector::RentCollector,
@@ -350,42 +349,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let mut execute_timings = ExecuteTimings::default();
         let mut processing_results = Vec::with_capacity(sanitized_txs.len());
 
-        let native_loader = native_loader::id();
-        let (program_accounts_map, filter_executable_us) = measure_us!({
-            let mut program_accounts_map = Self::filter_executable_program_accounts(
-                callbacks,
-                sanitized_txs,
-                &check_results,
-                PROGRAM_OWNERS,
-            );
-            for builtin_program in self.builtin_program_ids.read().unwrap().iter() {
-                program_accounts_map.insert(*builtin_program, (&native_loader, 0));
-            }
-            program_accounts_map
-        });
-
-        let (program_cache_for_tx_batch, program_cache_us) = measure_us!({
-            let program_cache_for_tx_batch = self.replenish_program_cache(
-                callbacks,
-                &program_accounts_map,
-                &mut execute_timings,
-                config.check_program_modification_slot,
-                config.limit_to_load_programs,
-            );
-
-            if program_cache_for_tx_batch.hit_max_limit {
-                return LoadAndExecuteSanitizedTransactionsOutput {
-                    error_metrics,
-                    execute_timings,
-                    processing_results: (0..sanitized_txs.len())
-                        .map(|_| Err(TransactionError::ProgramCacheHitMaxLimit))
-                        .collect(),
-                };
-            }
-
-            program_cache_for_tx_batch
-        });
-
         // Determine a capacity for the internal account cache. This
         // over-allocates but avoids ever reallocating, and spares us from
         // deduplicating the account keys lists.
@@ -394,8 +357,6 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         // Create the account loader, which wraps all external account fetching.
         let mut account_loader = AccountLoader::new_with_account_cache_capacity(
             config.account_overrides,
-            program_cache_for_tx_batch,
-            program_accounts_map,
             callbacks,
             environment.feature_set.clone(),
             account_keys_in_batch,
@@ -439,6 +400,30 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             ));
             load_us = load_us.saturating_add(single_load_us);
 
+            let mut program_accounts_map =
+                Self::filter_executable_program_accounts(&mut account_loader, tx, PROGRAM_OWNERS);
+            for builtin_program in self.builtin_program_ids.read().unwrap().iter() {
+                program_accounts_map.insert(*builtin_program, 0);
+            }
+
+            let mut program_cache_for_tx = self.replenish_program_cache(
+                callbacks,
+                &program_accounts_map,
+                &mut execute_timings,
+                config.check_program_modification_slot,
+                config.limit_to_load_programs,
+            );
+
+            if program_cache_for_tx.hit_max_limit {
+                return LoadAndExecuteSanitizedTransactionsOutput {
+                    error_metrics,
+                    execute_timings,
+                    processing_results: (0..sanitized_txs.len())
+                        .map(|_| Err(TransactionError::ProgramCacheHitMaxLimit))
+                        .collect(),
+                };
+            }
+
             let (processing_result, single_execution_us) = measure_us!(match load_result {
                 TransactionLoadResult::NotLoaded(err) => Err(err),
                 TransactionLoadResult::FeesOnly(fees_only_tx) => {
@@ -459,7 +444,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                         loaded_transaction,
                         &mut execute_timings,
                         &mut error_metrics,
-                        &mut account_loader.program_cache,
+                        &mut program_cache_for_tx,
                         environment,
                         config,
                     );
@@ -467,6 +452,9 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     // Update loaded accounts cache with account states which might have changed.
                     // Also update local program cache with modifications made by the transaction,
                     // if it executed successfully.
+                    if executed_tx.was_successful() {
+                        program_cache_for_tx.merge(&executed_tx.programs_modified_by_tx);
+                    }
                     account_loader.update_accounts_for_executed_tx(tx, &executed_tx);
 
                     Ok(ProcessedTransaction::Executed(Box::new(executed_tx)))
@@ -477,22 +465,14 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             processing_results.push(processing_result);
         }
 
-        // Skip eviction when there's no chance this particular tx batch has increased the size of
-        // ProgramCache entries. Note that loaded_missing is deliberately defined, so that there's
-        // still at least one other batch, which will evict the program cache, even after the
-        // occurrences of cooperative loading.
-        if account_loader.program_cache.loaded_missing
-            || account_loader.program_cache.merged_modified
-        {
-            const SHRINK_LOADED_PROGRAMS_TO_PERCENTAGE: u8 = 90;
-            self.program_cache
-                .write()
-                .unwrap()
-                .evict_using_2s_random_selection(
-                    Percentage::from(SHRINK_LOADED_PROGRAMS_TO_PERCENTAGE),
-                    self.slot,
-                );
-        }
+        const SHRINK_LOADED_PROGRAMS_TO_PERCENTAGE: u8 = 90;
+        self.program_cache
+            .write()
+            .unwrap()
+            .evict_using_2s_random_selection(
+                Percentage::from(SHRINK_LOADED_PROGRAMS_TO_PERCENTAGE),
+                self.slot,
+            );
 
         debug!(
             "load: {}us execute: {}us txs_len={}",
@@ -503,10 +483,10 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
         execute_timings
             .saturating_add_in_place(ExecuteTimingType::ValidateFeesUs, validate_fees_us);
-        execute_timings
-            .saturating_add_in_place(ExecuteTimingType::FilterExecutableUs, filter_executable_us);
-        execute_timings
-            .saturating_add_in_place(ExecuteTimingType::ProgramCacheUs, program_cache_us);
+        //execute_timings
+        //    .saturating_add_in_place(ExecuteTimingType::FilterExecutableUs, filter_executable_us);
+        //execute_timings
+        //    .saturating_add_in_place(ExecuteTimingType::ProgramCacheUs, program_cache_us);
         execute_timings.saturating_add_in_place(ExecuteTimingType::LoadUs, load_us);
         execute_timings.saturating_add_in_place(ExecuteTimingType::ExecuteUs, execution_us);
 
@@ -696,34 +676,30 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
 
     /// Returns a map from executable program accounts (all accounts owned by any loader)
     /// to their usage counters, for the transactions with a valid blockhash or nonce.
-    fn filter_executable_program_accounts<'a, CB: TransactionProcessingCallback>(
-        callbacks: &CB,
-        txs: &[impl SVMMessage],
-        check_results: &[TransactionCheckResult],
-        program_owners: &'a [Pubkey],
-    ) -> HashMap<Pubkey, (&'a Pubkey, u64)> {
-        let mut result: HashMap<Pubkey, (&'a Pubkey, u64)> = HashMap::new();
-        check_results.iter().zip(txs).for_each(|etx| {
-            if let (Ok(_), tx) = etx {
-                tx.account_keys()
-                    .iter()
-                    .for_each(|key| match result.entry(*key) {
-                        Entry::Occupied(mut entry) => {
-                            let (_, count) = entry.get_mut();
-                            saturating_add_assign!(*count, 1);
+    fn filter_executable_program_accounts<CB: TransactionProcessingCallback>(
+        account_loader: &mut AccountLoader<CB>,
+        tx: &impl SVMMessage,
+        program_owners: &[Pubkey],
+    ) -> HashMap<Pubkey, u64> {
+        let mut result: HashMap<Pubkey, u64> = HashMap::new();
+        tx.account_keys()
+            .iter()
+            .for_each(|key| match result.entry(*key) {
+                Entry::Occupied(mut entry) => {
+                    let count = entry.get_mut();
+                    saturating_add_assign!(*count, 1);
+                }
+                Entry::Vacant(entry) => {
+                    if let Some(ref loaded_account) =
+                        account_loader.load_account(key, AccountUsagePattern::ReadOnlyInstruction)
+                    {
+                        let owner = loaded_account.account.owner();
+                        if program_owners.contains(owner) {
+                            entry.insert(1);
                         }
-                        Entry::Vacant(entry) => {
-                            if let Some(index) =
-                                callbacks.account_matches_owners(key, program_owners)
-                            {
-                                if let Some(owner) = program_owners.get(index) {
-                                    entry.insert((owner, 1));
-                                }
-                            }
-                        }
-                    });
-            }
-        });
+                    }
+                }
+            });
         result
     }
 
@@ -731,7 +707,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
     fn replenish_program_cache<CB: TransactionProcessingCallback>(
         &self,
         callback: &CB,
-        program_accounts_map: &HashMap<Pubkey, (&Pubkey, u64)>,
+        program_accounts_map: &HashMap<Pubkey, u64>,
         execute_timings: &mut ExecuteTimings,
         check_program_modification_slot: bool,
         limit_to_load_programs: bool,
@@ -739,7 +715,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         let mut missing_programs: Vec<(Pubkey, (ProgramCacheMatchCriteria, u64))> =
             program_accounts_map
                 .iter()
-                .map(|(pubkey, (_, count))| {
+                .map(|(pubkey, count)| {
                     let match_criteria = if check_program_modification_slot {
                         get_program_modification_slot(callback, pubkey)
                             .map_or(ProgramCacheMatchCriteria::Tombstone, |slot| {
