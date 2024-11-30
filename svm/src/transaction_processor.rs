@@ -367,6 +367,7 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             .is_active(&enable_transaction_loading_failure_fees::id());
 
         let (mut validate_fees_us, mut load_us, mut execution_us): (u64, u64, u64) = (0, 0, 0);
+        let mut evict_from_global_cache = false;
 
         // Validate, execute, and collect results from each transaction in order.
         // With SIMD83, transactions must be executed in order, because transactions
@@ -462,17 +463,23 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             });
             execution_us = execution_us.saturating_add(single_execution_us);
 
+            if program_cache_for_tx.loaded_missing || program_cache_for_tx.merged_modified {
+                evict_from_global_cache = true;
+            }
+
             processing_results.push(processing_result);
         }
 
-        const SHRINK_LOADED_PROGRAMS_TO_PERCENTAGE: u8 = 90;
-        self.program_cache
-            .write()
-            .unwrap()
-            .evict_using_2s_random_selection(
-                Percentage::from(SHRINK_LOADED_PROGRAMS_TO_PERCENTAGE),
-                self.slot,
-            );
+        if evict_from_global_cache {
+            const SHRINK_LOADED_PROGRAMS_TO_PERCENTAGE: u8 = 90;
+            self.program_cache
+                .write()
+                .unwrap()
+                .evict_using_2s_random_selection(
+                    Percentage::from(SHRINK_LOADED_PROGRAMS_TO_PERCENTAGE),
+                    self.slot,
+                );
+        }
 
         debug!(
             "load: {}us execute: {}us txs_len={}",
