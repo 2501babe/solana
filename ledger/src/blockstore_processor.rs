@@ -43,6 +43,7 @@ use {
         runtime_transaction::RuntimeTransaction, transaction_with_meta::TransactionWithMeta,
     },
     solana_sdk::{
+        account::ReadableAccount,
         clock::{Slot, MAX_PROCESSING_AGE},
         genesis_config::GenesisConfig,
         hash::Hash,
@@ -54,13 +55,17 @@ use {
         },
     },
     solana_svm::{
+        account_loader::AccountRetrievalCallback,
+        transaction_batch_balance_collector::TransactionBatchBalanceCollector,
         transaction_commit_result::{TransactionCommitResult, TransactionCommitResultExtensions},
         transaction_processing_result::{ProcessedTransaction, TransactionProcessingResult},
         transaction_processor::ExecutionRecordingConfig,
     },
     solana_svm_transaction::{svm_message::SVMMessage, svm_transaction::SVMTransaction},
     solana_timings::{report_execute_timings, ExecuteTimingType, ExecuteTimings},
-    solana_transaction_status::token_balances::TransactionTokenBalancesSet,
+    solana_transaction_status::token_balances::{
+        TransactionTokenBalance, TransactionTokenBalances, TransactionTokenBalancesSet,
+    },
     solana_vote::vote_account::VoteAccountsHashMap,
     std::{
         borrow::Cow,
@@ -81,6 +86,106 @@ use {
 };
 #[cfg(feature = "dev-context-only-utils")]
 use {qualifier_attr::qualifiers, solana_runtime::bank::HashOverrides};
+
+// TODO HANA put this all somehwere better
+pub struct BalanceCollector {
+    native_pre: Vec<Vec<u64>>,
+    native_post: Vec<Vec<u64>>,
+    token_pre: TransactionTokenBalances,
+    token_post: TransactionTokenBalances,
+    transaction_count: usize,
+}
+
+impl BalanceCollector {
+    pub fn new_with_transaction_count(transaction_count: usize) -> Self {
+        Self {
+            native_pre: Vec::with_capacity(transaction_count),
+            native_post: Vec::with_capacity(transaction_count),
+            token_pre: Vec::with_capacity(transaction_count),
+            token_post: Vec::with_capacity(transaction_count),
+            transaction_count,
+        }
+    }
+
+    fn collect_balances<CB: AccountRetrievalCallback, TX: SVMTransaction>(
+        &mut self,
+        loader: &mut CB,
+        transaction: &TX,
+        _include_tokens: bool,
+        pre_balance_mode: bool,
+    ) {
+        let mut native_balances: Vec<u64> = Vec::with_capacity(transaction.account_keys().len());
+        let /*mut*/ token_balance: Vec<TransactionTokenBalance> = vec![];
+
+        for key in transaction.account_keys().iter() {
+            let lamports = loader
+                .get_account_shared_data(key)
+                .map(|account| account.lamports())
+                .unwrap_or(0);
+
+            native_balances.push(lamports);
+
+            // TODO tokens
+        }
+
+        if pre_balance_mode {
+            self.native_pre.push(native_balances);
+            self.token_pre.push(token_balance);
+        } else {
+            self.native_post.push(native_balances);
+            self.token_post.push(token_balance);
+        }
+    }
+}
+
+// TODO this could be faster (but more complicated) if we pass in a success/failure bool
+// because then we can only get fee payer. we still want the token bool tho
+// could be an enum LoadFailure / Loaded / ExecutionFailure / Executed
+// oh that lets us use one function also. it gets a little confusing though
+// because the pre/post/skip pattern is self-documenting
+// we would want an internal state tracker to prevent misuse
+impl<CB: AccountRetrievalCallback, TX: SVMTransaction> TransactionBatchBalanceCollector<CB, TX>
+    for BalanceCollector
+{
+    fn collect_pre_balances(&mut self, loader: &mut CB, transaction: &TX, include_tokens: bool) {
+        self.collect_balances(loader, transaction, include_tokens, true)
+    }
+
+    fn collect_post_balances(&mut self, loader: &mut CB, transaction: &TX, include_tokens: bool) {
+        self.collect_balances(loader, transaction, include_tokens, false)
+    }
+
+    fn skip_transaction(&mut self) {
+        self.native_pre.push(vec![]);
+        self.native_post.push(vec![]);
+        self.token_pre.push(vec![]);
+        self.token_post.push(vec![]);
+    }
+}
+
+impl From<BalanceCollector> for (TransactionBalancesSet, TransactionTokenBalancesSet) {
+    fn from(balances: BalanceCollector) -> Self {
+        if [
+            balances.native_pre.len(),
+            balances.native_post.len(),
+            balances.token_pre.len(),
+            balances.token_post.len(),
+        ]
+        .iter()
+        .all(|length| *length == balances.transaction_count)
+        {
+            (
+                TransactionBalancesSet::new(balances.native_pre, balances.native_post),
+                TransactionTokenBalancesSet::new(balances.token_pre, balances.token_post),
+            )
+        } else {
+            (
+                TransactionBalancesSet::new(vec![], vec![]),
+                TransactionTokenBalancesSet::new(vec![], vec![]),
+            )
+        }
+    }
+}
 
 pub struct TransactionBatchWithIndexes<'a, 'b, Tx: SVMMessage> {
     pub batch: TransactionBatch<'a, 'b, Tx>,

@@ -1,4 +1,4 @@
-use crate::TransactionTokenBalance;
+pub use crate::TransactionTokenBalance;
 
 pub type TransactionTokenBalances = Vec<Vec<TransactionTokenBalance>>;
 

@@ -152,6 +152,14 @@ pub struct FeesOnlyTransaction {
     pub fee_details: FeeDetails,
 }
 
+// TODO i really want to make this a subtrait of TransactionProcessingCallback
+// but it depends on interior mutability on AccountLoader, no clever ways around it
+pub trait AccountRetrievalCallback {
+    fn account_matches_owners(&mut self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize>;
+
+    fn get_account_shared_data(&mut self, pubkey: &Pubkey) -> Option<AccountSharedData>;
+}
+
 #[cfg_attr(feature = "dev-context-only-utils", derive(Clone))]
 pub(crate) struct AccountLoader<'a, CB: TransactionProcessingCallback> {
     account_cache: AHashMap<Pubkey, AccountSharedData>,
@@ -286,6 +294,20 @@ impl<'a, CB: TransactionProcessingCallback> AccountLoader<'a, CB> {
 
             self.account_cache.insert(*address, account.clone());
         }
+    }
+}
+impl<CB: TransactionProcessingCallback> AccountRetrievalCallback for AccountLoader<'_, CB> {
+    fn account_matches_owners(&mut self, pubkey: &Pubkey, owners: &[Pubkey]) -> Option<usize> {
+        self.load_account(pubkey, false).and_then(|loaded| {
+            owners
+                .iter()
+                .position(|entry| entry == loaded.account.owner())
+        })
+    }
+
+    fn get_account_shared_data(&mut self, pubkey: &Pubkey) -> Option<AccountSharedData> {
+        self.load_account(pubkey, false)
+            .map(|loaded| loaded.account)
     }
 }
 
