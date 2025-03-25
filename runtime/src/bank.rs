@@ -154,6 +154,7 @@ use {
     solana_svm::{
         account_loader::{collect_rent_from_account, LoadedTransaction},
         account_overrides::AccountOverrides,
+        transaction_batch_balance_collector::DummyBalanceCollector,
         transaction_commit_result::{CommittedTransaction, TransactionCommitResult},
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_execution_result::{
@@ -3382,6 +3383,8 @@ impl Bank {
                 check_results,
                 &processing_environment,
                 &processing_config,
+                // HANA placeholder, we need to pass this down from ledger/consumer
+                &mut DummyBalanceCollector::default(),
             );
 
         // Accumulate the errors returned by the batch processor.

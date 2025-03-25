@@ -13,6 +13,7 @@ use {
         program_loader::{get_program_modification_slot, load_program_with_pubkey},
         rollback_accounts::RollbackAccounts,
         transaction_account_state_info::TransactionAccountStateInfo,
+        transaction_batch_balance_collector::TransactionBatchBalanceCollector,
         transaction_error_metrics::TransactionErrorMetrics,
         transaction_execution_result::{ExecutedTransaction, TransactionExecutionDetails},
         transaction_processing_callback::TransactionProcessingCallback,
@@ -307,14 +308,31 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
         self.sysvar_cache.read().unwrap()
     }
 
+    // HANA this type signature is insane. documenting the problems i ran into
+    // * initially i wanted to make AccountRetrievalCallback a subtrait of TransactionProcessingCallback
+    //   i had what i thought was an elegant soution, making the methods self instead of &self
+    //   and impling for refernce types. unfortunately this would require &mut self be Copy
+    //   in other words the concept fundamentally violates the exclusivity rule
+    // * i kept AccountRetrievalCallback as a way to avoid exposing AccountLoader outside svm
+    //   idea being to have this take TransactionBatchBalanceCollector<AccountRetrievalCallback, SVMTransaction>>
+    //   again unfortunately this does not work. rust cannot unify AccountRetrievalCallback to AccountLoader
+    //   it can only be done if AccountLoader is passed in from the outside
+    //   this wouldnt be solved even if we added UnsafeCell to AccountLoader to impl TransactionProcessingCallback
+    //   it also wouldnt work with dyn and that has added problems because of the generic on AccountLoader
+    // for now im going to expose AccountLoader and unify when this function is called
     /// Main entrypoint to the SVM.
-    pub fn load_and_execute_sanitized_transactions<CB: TransactionProcessingCallback>(
+    pub fn load_and_execute_sanitized_transactions<
+        'a,
+        CB: TransactionProcessingCallback,
+        TX: SVMTransaction,
+    >(
         &self,
-        callbacks: &CB,
-        sanitized_txs: &[impl SVMTransaction],
+        callbacks: &'a CB,
+        sanitized_txs: &[TX],
         check_results: Vec<TransactionCheckResult>,
         environment: &TransactionProcessingEnvironment,
-        config: &TransactionProcessingConfig,
+        config: &'a TransactionProcessingConfig,
+        balance_collector: &mut impl TransactionBatchBalanceCollector<AccountLoader<'a, CB>, TX>,
     ) -> LoadAndExecuteSanitizedTransactionsOutput {
         // If `check_results` does not have the same length as `sanitized_txs`,
         // transactions could be truncated as a result of `.iter().zip()` in
@@ -380,6 +398,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             account_keys_in_batch,
         );
 
+        // HANA TODO could do balance collection metrics here, or could inside the struct
+        // or could remove it. we dont really go to accounts-db anymore except for some mints
         let (mut validate_fees_us, mut load_us, mut execution_us): (u64, u64, u64) = (0, 0, 0);
 
         // Validate, execute, and collect results from each transaction in order.
@@ -414,15 +434,24 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
             load_us = load_us.saturating_add(single_load_us);
 
             let (processing_result, single_execution_us) = measure_us!(match load_result {
-                TransactionLoadResult::NotLoaded(err) => Err(err),
+                TransactionLoadResult::NotLoaded(err) => {
+                    balance_collector.skip_transaction();
+                    Err(err)
+                }
                 TransactionLoadResult::FeesOnly(fees_only_tx) => {
+                    balance_collector.collect_pre_balances(&mut account_loader, tx, false);
+
                     // Update loaded accounts cache with nonce and fee-payer
                     account_loader
                         .update_accounts_for_failed_tx(tx, &fees_only_tx.rollback_accounts);
 
+                    balance_collector.collect_post_balances(&mut account_loader, tx, false);
+
                     Ok(ProcessedTransaction::FeesOnly(Box::new(fees_only_tx)))
                 }
                 TransactionLoadResult::Loaded(loaded_transaction) => {
+                    balance_collector.collect_pre_balances(&mut account_loader, tx, true);
+
                     let executed_tx = self.execute_loaded_transaction(
                         callbacks,
                         tx,
@@ -441,6 +470,8 @@ impl<FG: ForkGraph> TransactionBatchProcessor<FG> {
                     if executed_tx.was_successful() {
                         program_cache_for_tx_batch.merge(&executed_tx.programs_modified_by_tx);
                     }
+
+                    balance_collector.collect_post_balances(&mut account_loader, tx, true);
 
                     Ok(ProcessedTransaction::Executed(Box::new(executed_tx)))
                 }

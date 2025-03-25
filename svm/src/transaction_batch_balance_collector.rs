@@ -33,18 +33,20 @@ use {
 //
 // there are more optimal ways (skipping non-feepayer on fail) but for now do naive
 
-pub trait TransactionBatchBalanceCollector<CB, TX>
+pub trait TransactionBatchBalanceCollector<AR, TX>
 where
-    CB: AccountRetrievalCallback,
+    AR: AccountRetrievalCallback,
     TX: SVMTransaction,
 {
-    fn collect_pre_balances(&mut self, loader: &mut CB, transaction: &TX, include_tokens: bool);
+    fn collect_pre_balances(&mut self, loader: &mut AR, transaction: &TX, include_tokens: bool);
 
-    fn collect_post_balances(&mut self, loader: &mut CB, transaction: &TX, include_tokens: bool);
+    fn collect_post_balances(&mut self, loader: &mut AR, transaction: &TX, include_tokens: bool);
 
     fn skip_transaction(&mut self);
 }
 
+// HANA could accept an Option instead of all this if we wanted
+#[derive(Default)]
 pub struct DummyBalanceCollector {}
 
 impl<AR: AccountRetrievalCallback, TX: SVMTransaction> TransactionBatchBalanceCollector<AR, TX>

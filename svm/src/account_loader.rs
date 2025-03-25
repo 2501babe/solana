@@ -152,7 +152,7 @@ pub struct FeesOnlyTransaction {
     pub fee_details: FeeDetails,
 }
 
-// TODO i really want to make this a subtrait of TransactionProcessingCallback
+// HANA TODO i really want to make this a subtrait of TransactionProcessingCallback
 // but it depends on interior mutability on AccountLoader, no clever ways around it
 pub trait AccountRetrievalCallback {
     fn account_matches_owners(&mut self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize>;
@@ -161,7 +161,7 @@ pub trait AccountRetrievalCallback {
 }
 
 #[cfg_attr(feature = "dev-context-only-utils", derive(Clone))]
-pub(crate) struct AccountLoader<'a, CB: TransactionProcessingCallback> {
+pub struct AccountLoader<'a, CB: TransactionProcessingCallback> {
     account_cache: AHashMap<Pubkey, AccountSharedData>,
     callbacks: &'a CB,
     pub(crate) feature_set: Arc<FeatureSet>,
