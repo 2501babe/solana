@@ -24,14 +24,14 @@ num_cpus = { workspace = true }
 serde_json = { workspace = true }
 solana-clap-v3-utils = { workspace = true }
 solana-cli-config = { workspace = true }
-solana-derivation-path = "=3.0.0"
-solana-instruction = { version = "=3.0.0", features = ["bincode"] }
-solana-keypair = "=3.0.0"
-solana-message = { version = "=3.0.0", features = ["bincode"] }
-solana-pubkey = { version = "=3.0.0", default-features = false }
+solana-derivation-path = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-instruction = { features = ["bincode"] , git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-keypair = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-message = { features = ["bincode"] , git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-pubkey = { default-features = false , git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-remote-wallet = { workspace = true, features = ["default"] }
-solana-seed-derivable = "=3.0.0"
-solana-signer = "=3.0.0"
+solana-seed-derivable = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-signer = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-version = { workspace = true }
 tiny-bip39 = { workspace = true }
 

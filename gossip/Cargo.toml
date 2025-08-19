@@ -61,43 +61,43 @@ solana-account = { workspace = true }
 solana-bloom = { workspace = true }
 solana-clap-utils = { workspace = true }
 solana-client = { workspace = true }
-solana-clock = "=3.0.0"
-solana-cluster-type = "=3.0.0"
+solana-clock = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-cluster-type = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-connection-cache = { workspace = true }
 solana-entry = { workspace = true }
-solana-epoch-schedule = "=3.0.0"
-solana-frozen-abi = { version = "=3.0.0", optional = true, features = [
+solana-epoch-schedule = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-frozen-abi = { optional = true, features = [
     "frozen-abi",
-] }
-solana-frozen-abi-macro = { version = "=3.0.0", optional = true, features = [
+] , git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-frozen-abi-macro = { optional = true, features = [
     "frozen-abi",
-] }
-solana-hash = "=3.0.0"
-solana-keypair = "=3.0.0"
+] , git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-hash = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-keypair = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-ledger = { workspace = true, features = ["agave-unstable-api"] }
-solana-logger = "=3.0.0"
+solana-logger = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-low-pass-filter = { workspace = true, features = ["agave-unstable-api"] }
 solana-measure = { workspace = true }
 solana-metrics = { workspace = true }
-solana-native-token = "=3.0.0"
+solana-native-token = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-net-utils = { workspace = true }
-solana-packet = "=3.0.0"
+solana-packet = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-perf = { workspace = true }
-solana-pubkey = { version = "=3.0.0", features = ["rand"] }
-solana-quic-definitions = "=3.0.0"
+solana-pubkey = { features = ["rand"] , git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-quic-definitions = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-rayon-threadlimit = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-runtime = { workspace = true }
-solana-sanitize = "=3.0.0"
-solana-serde-varint = "=3.0.0"
-solana-sha256-hasher = "=3.0.0"
-solana-short-vec = "=3.0.0"
-solana-signature = { version = "=3.0.0", default-features = false }
-solana-signer = "=3.0.0"
+solana-sanitize = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-serde-varint = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-sha256-hasher = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-short-vec = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-signature = { default-features = false , git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
+solana-signer = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-streamer = { workspace = true }
-solana-time-utils = "=3.0.0"
+solana-time-utils = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-tpu-client = { workspace = true }
-solana-transaction = "=3.0.0"
+solana-transaction = { git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-version = { workspace = true }
 solana-vote = { workspace = true }
 solana-vote-program = { workspace = true }
@@ -115,7 +115,7 @@ serial_test = { workspace = true }
 solana-net-utils = { workspace = true, features = ["dev-context-only-utils"] }
 solana-perf = { workspace = true, features = ["dev-context-only-utils"] }
 solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
-solana-signature = { version = "=3.0.0", features = ["rand"] }
+solana-signature = { features = ["rand"] , git = "https://github.com/2501babe/solana-sdk.git", branch = "voteop" }
 solana-system-transaction = { workspace = true }
 solana-vote-interface = { workspace = true }
 static_assertions = { workspace = true }
